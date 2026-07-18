@@ -1,0 +1,18 @@
+# Proteksi file sensitif
+<FilesMatch "^(config\.php|security\.php)$">
+    Require all denied
+</FilesMatch>
+
+# Enable error logging (jangan tampilkan error ke user)
+php_flag display_errors Off
+php_flag log_errors On
+
+# Disable directory listing
+Options -Indexes
+
+# Proteksi dari direct access ke .php files (kecuali API endpoints)
+# Uncomment jika ingin extra protection
+# <FilesMatch "\.php$">
+#     Order allow,deny
+#     Allow from all
+# </FilesMatch>

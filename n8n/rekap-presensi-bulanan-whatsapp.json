@@ -1,0 +1,358 @@
+{
+  "name": "Rekap Presensi Bulanan WhatsApp Guru",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Rekap Presensi Bulanan\n\nWorkflow ini jalan setiap hari jam 18:00 WIB, lalu berhenti otomatis kalau hari ini bukan tanggal terakhir bulan berjalan.\n\nSetelah import, buka node **Konfigurasi & Cek Akhir Bulan**, lalu isi langsung:\n- appUrl\n- n8nApiKey\n- gowaUrl\n\nPada node **Kirim WhatsApp (Gowa)**, pilih credential Basic Auth untuk Gowa.",
+        "height": 300,
+        "width": 420,
+        "color": 4
+      },
+      "id": "7f652d1c-2e07-4f7d-a3c0-9fd57f7e7a71",
+      "name": "Catatan Konfigurasi",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 18,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "3d2f932f-70d4-4ed3-a3a7-bf3e1f3ab5dc",
+      "name": "Jadwal Harian 18.00 WIB",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -980,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let appUrl = 'https://geo.pkbmtunasilmu.web.id';\nconst n8nApiKey = 'ISI_N8N_API_KEY_APLIKASI_DI_SINI';\nlet gowaUrl = 'ISI_URL_GOWA_DI_SINI';\nconst forceRun = false; // Ubah sementara ke true untuk tes manual di luar tanggal terakhir bulan.\n\nwhile (appUrl.endsWith('/')) appUrl = appUrl.slice(0, -1);\nif (appUrl.toLowerCase().endsWith('/api')) appUrl = appUrl.slice(0, -4);\ngowaUrl = String(gowaUrl).trim();\n\nif (!n8nApiKey || n8nApiKey === 'ISI_N8N_API_KEY_APLIKASI_DI_SINI') {\n  throw new Error('Isi n8nApiKey di node Konfigurasi & Cek Akhir Bulan dengan nilai N8N_API_KEY aplikasi presensi.');\n}\nif (!gowaUrl || gowaUrl === 'ISI_URL_GOWA_DI_SINI') {\n  throw new Error('Isi gowaUrl di node Konfigurasi & Cek Akhir Bulan dengan URL endpoint Gowa.');\n}\n\nconst now = new Date();\nconst parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now).map((part) => [part.type, part.value]));\nconst year = Number(parts.year);\nconst month = Number(parts.month);\nconst day = Number(parts.day);\nconst lastDay = new Date(year, month, 0).getDate();\n\nif (!forceRun && day !== lastDay) {\n  return [];\n}\n\nconst pad = (value) => String(value).padStart(2, '0');\nconst startDate = `${year}-${pad(month)}-01`;\nconst endDate = `${year}-${pad(month)}-${pad(lastDay)}`;\nconst monthLabel = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', month: 'long', year: 'numeric' }).format(new Date(Date.UTC(year, month - 1, 1)));\n\nreturn [{ json: { appUrl, n8nApiKey, gowaUrl, timezone: 'Asia/Jakarta', year, month, day, lastDay, startDate, endDate, monthLabel, forceRun, generatedAt: now.toISOString() } }];"
+      },
+      "id": "1b7194f0-8a84-47de-a53b-c32fe0ef6109",
+      "name": "Konfigurasi & Cek Akhir Bulan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -740,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.appUrl + '/api/n8n_guru.php'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$json.n8nApiKey}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a08bcd40-fc58-414c-87c3-f5d6e23192cd",
+      "name": "Ambil Data Guru",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -500,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $items('Konfigurasi & Cek Akhir Bulan')[0].json;\nconst pad = (value) => String(value).padStart(2, '0');\nconst dates = [];\nfor (let day = 1; day <= cfg.lastDay; day++) {\n  dates.push({ json: { ...cfg, tanggal: `${cfg.year}-${pad(cfg.month)}-${pad(day)}`, dayOfMonth: day } });\n}\nreturn dates;"
+      },
+      "id": "c63845f8-65d7-48b8-97e8-251522995ab1",
+      "name": "Buat Daftar Tanggal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.appUrl + '/api/holidays.php'}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "check",
+              "value": "={{$json.tanggal}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "5f4d376e-357b-4854-80bd-f1bba3c54c10",
+      "name": "Cek Hari Kerja Per Tanggal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$node['Konfigurasi & Cek Akhir Bulan'].json.appUrl + '/api/n8n_presensi.php'}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tanggal",
+              "value": "={{$json.data.tanggal}}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$node['Konfigurasi & Cek Akhir Bulan'].json.n8nApiKey}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "745dc37c-cfbb-4321-bfbc-39c6472b3916",
+      "name": "Ambil Presensi Per Tanggal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $items('Konfigurasi & Cek Akhir Bulan')[0].json;\nconst guruResponse = $items('Ambil Data Guru')[0].json;\nif (!guruResponse.success || !Array.isArray(guruResponse.data)) {\n  throw new Error('Response guru dari API tidak valid.');\n}\nconst gurus = guruResponse.data;\nconst holidayItems = $items('Cek Hari Kerja Per Tanggal').map((item) => item.json.data || item.json);\nlet workdays = holidayItems.filter((dateInfo) => dateInfo && dateInfo.isWorkday).map((dateInfo) => dateInfo.tanggal).sort();\nconst pad = (value) => String(value).padStart(2, '0');\nif (workdays.length === 0) {\n  workdays = Array.from({ length: cfg.lastDay }, (_, index) => `${cfg.year}-${pad(cfg.month)}-${pad(index + 1)}`);\n}\nconst presensiResponses = $input.all().map((item) => item.json);\nconst logs = presensiResponses.flatMap((response) => Array.isArray(response.data) ? response.data : []);\nconst logsByUser = new Map();\nfor (const log of logs) {\n  const userKey = String(log.userId || log.user_id || '');\n  if (!userKey) continue;\n  if (!logsByUser.has(userKey)) logsByUser.set(userKey, []);\n  logsByUser.get(userKey).push(log);\n}\nconst statusLabel = (status) => ({\n  hadir: 'Hadir',\n  hadir_terlambat: 'Hadir terlambat',\n  hadir_izin_terlambat: 'Izin terlambat',\n  izin: 'Izin',\n  sakit: 'Sakit'\n}[status] || status || '-');\nconst normalizePhone = (raw) => {\n  let phone = String(raw || '').trim().replace(/[^0-9+]/g, '');\n  if (phone.startsWith('+')) phone = phone.slice(1);\n  if (phone.startsWith('0')) phone = `62${phone.slice(1)}`;\n  if (phone.startsWith('8')) phone = `62${phone}`;\n  return phone;\n};\nconst formatDate = (date) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;\nconst gowaUrl = String(cfg.gowaUrl || '').trim();\nif (!gowaUrl) {\n  throw new Error('Isi gowaUrl di node Konfigurasi & Cek Akhir Bulan.');\n}\nconst output = [];\nfor (const guru of gurus) {\n  const phone = normalizePhone(guru.noHP || guru.no_hp || '');\n  if (!phone) continue;\n  const userLogs = (logsByUser.get(String(guru.id)) || []).sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)));\n  const logsByDate = new Map(userLogs.map((log) => [log.tanggal, log]));\n  const counts = { hadir: 0, terlambat: 0, izinTerlambat: 0, izin: 0, sakit: 0, lainnya: 0 };\n  for (const log of userLogs) {\n    if (log.status === 'hadir') counts.hadir++;\n    else if (log.status === 'hadir_terlambat') counts.terlambat++;\n    else if (log.status === 'hadir_izin_terlambat') counts.izinTerlambat++;\n    else if (log.status === 'izin') counts.izin++;\n    else if (log.status === 'sakit') counts.sakit++;\n    else counts.lainnya++;\n  }\n  const hadirTotal = counts.hadir + counts.terlambat + counts.izinTerlambat;\n  const absentDates = workdays.filter((date) => !logsByDate.has(date));\n  const percentage = workdays.length > 0 ? ((hadirTotal / workdays.length) * 100).toFixed(1) : '0.0';\n  const details = workdays.map((date, index) => {\n    const log = logsByDate.get(date);\n    if (!log) return `${index + 1}. ${formatDate(date)} - Tidak presensi`;\n    const masuk = log.jamMasuk || log.jam_masuk || log.jamHadir || log.jam_hadir || '-';\n    const pulang = log.jamPulang || log.jam_pulang || '-';\n    const ket = log.keterangan ? ` (${String(log.keterangan).trim()})` : '';\n    if (log.status === 'izin') return `${index + 1}. ${formatDate(date)} - Izin${ket}`;\n    if (log.status === 'sakit') return `${index + 1}. ${formatDate(date)} - Sakit${ket}`;\n    return `${index + 1}. ${formatDate(date)} - ${statusLabel(log.status)} ${masuk} / ${pulang}${ket}`;\n  }).join('\\n');\n  const message = [\n    '*Rekap Presensi Bulanan*',\n    '',\n    `Assalamu'alaikum Bapak/Ibu *${guru.nama}*,`,\n    '',\n    `Berikut rekap presensi periode *${cfg.monthLabel}* (${cfg.startDate} s.d. ${cfg.endDate}).`,\n    '',\n    `Total hari kerja: *${workdays.length}*`,\n    `Hadir tepat waktu: *${counts.hadir}*`,\n    `Hadir terlambat: *${counts.terlambat}*`,\n    `Izin terlambat: *${counts.izinTerlambat}*`,\n    `Izin: *${counts.izin}*`,\n    `Sakit: *${counts.sakit}*`,\n    `Tidak presensi: *${absentDates.length}*`,\n    `Persentase hadir: *${percentage}%*`,\n    '',\n    '*Detail hari kerja:*',\n    details || '-',\n    '',\n    'Catatan: Hari libur dan akhir pekan tidak dihitung sebagai tidak presensi.',\n    '',\n    '_Sistem GeoPresensi Griya Quran_'\n  ].join('\\n');\n  output.push({ json: { nama: guru.nama, userId: guru.id, phone, message, gowaUrl, monthLabel: cfg.monthLabel, startDate: cfg.startDate, endDate: cfg.endDate, totalHariKerja: workdays.length, hadir: hadirTotal, izin: counts.izin, sakit: counts.sakit, tidakPresensi: absentDates.length, persentaseHadir: percentage } });\n}\nif (output.length === 0) {\n  throw new Error('Tidak ada guru dengan nomor WhatsApp/no_hp yang valid.');\n}\nreturn output;"
+      },
+      "id": "5cc12d8d-02dc-4491-8478-11be7740ac72",
+      "name": "Susun Rekap WhatsApp per Guru",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.gowaUrl}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "value": "={{$json.phone}}"
+            },
+            {
+              "name": "message",
+              "value": "={{$json.message}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "1d9f0129-a434-4a25-9ba5-578db8e3c7b6",
+      "name": "Kirim WhatsApp (Gowa)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        40
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REPLACE_WITH_GOWA_BASIC_AUTH_CREDENTIAL_ID",
+          "name": "Gowa Basic Auth"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$node['Konfigurasi & Cek Akhir Bulan'].json.appUrl + '/api/n8n_activity.php'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$node['Konfigurasi & Cek Akhir Bulan'].json.n8nApiKey}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "user",
+              "value": "n8n"
+            },
+            {
+              "name": "aktivitas",
+              "value": "={{'Kirim rekap presensi bulanan WhatsApp ke ' + $('Susun Rekap WhatsApp per Guru').item.json.nama + ' (' + $('Susun Rekap WhatsApp per Guru').item.json.monthLabel + ')'}}"
+            },
+            {
+              "name": "status",
+              "value": "Sukses"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "b3237662-601f-4ba2-9e0e-988efde5eb7d",
+      "name": "Log Aktivitas Aplikasi",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        940,
+        40
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Jadwal Harian 18.00 WIB": {
+      "main": [
+        [
+          {
+            "node": "Konfigurasi & Cek Akhir Bulan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Konfigurasi & Cek Akhir Bulan": {
+      "main": [
+        [
+          {
+            "node": "Ambil Data Guru",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ambil Data Guru": {
+      "main": [
+        [
+          {
+            "node": "Buat Daftar Tanggal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buat Daftar Tanggal": {
+      "main": [
+        [
+          {
+            "node": "Cek Hari Kerja Per Tanggal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cek Hari Kerja Per Tanggal": {
+      "main": [
+        [
+          {
+            "node": "Ambil Presensi Per Tanggal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ambil Presensi Per Tanggal": {
+      "main": [
+        [
+          {
+            "node": "Susun Rekap WhatsApp per Guru",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Rekap WhatsApp per Guru": {
+      "main": [
+        [
+          {
+            "node": "Kirim WhatsApp (Gowa)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kirim WhatsApp (Gowa)": {
+      "main": [
+        [
+          {
+            "node": "Log Aktivitas Aplikasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Jakarta"
+  },
+  "versionId": "d3a19f90-aea1-4c4d-a0f1-6ca48654529e",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

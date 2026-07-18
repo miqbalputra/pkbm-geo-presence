@@ -1,0 +1,11 @@
+1. Ganti nama aplikasi ini menjadi : Geo Presensi PKBM Tunas Ilmu
+2. Presensi kehadiran dilakukan hanya di hari Sabtu saja (karena kegiatan belajar PKBM Tunas Ilmu hanya hari Sabtu saja)
+3. Jadikan presensi harus pakai tanda tangan dan tersimpan di database:
+- Hadir: Scan QR Code > Layar tanda tangan terbuka > isi tanda tangan > submit > sukses (data masuk)
+- Izin: Klik tombol izin + keterangan izin apa
+- Sakit: Klik tombol sakit + keterangan sakit apa
+4. Aturan piket ganti jadi hanya hari sabtu namun beda pekan untuk setiap guru (dengan jeda sepekan).
+- Guru A piket Sabtu pekan ke 1 dan 3
+- Guru B piket Sabtu pekan ke 2 dan 4
+- Jika ada pekan ke 5 maka semua guru piket (jadikan aturan ini bisa diubah)
+5. Presensi Pulang tidak berubah

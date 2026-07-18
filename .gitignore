@@ -1,0 +1,93 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+
+# Environment variables (SENSITIVE - jangan di-push!)
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# PHP files (jika ada)
+*.php~
+
+# Temporary files
+*.tmp
+*.temp
+
+# ZIP files (file upload cPanel - jangan di-push ke GitHub)
+*.zip
+
+# SQL production files (data sensitif)
+geogqpresence.sql
+DATABASE_PRODUKSI*.sql
+GEOPRESENSI_FULL*.sql
+RESET_*.sql
+ganti_admin*.sql
+reset_*.sql
+dummy_data.sql
+
+# PHP config sensitif (berisi credentials database)
+api/config_laragon.php
+
+# Script lokal
+make_zip*.ps1
+cek_tanggal_server.php
+generate_password.php
+generate_miputra_password.php
+reset_admin_miputra.php
+
+# Debug endpoint (bocor info/PII tanpa auth — jangan di-push; sudah diblokir di image Docker)
+api/debug_simple.php
+api/debug_workdays.php
+api/debug_presensi.php
+api/test.php
+api/test_direct_gowa.php
+api/list_users_temp.php
+api/import_guru.php
+api/config_subdomain.php
+api/reset_password.php
+
+# cPanel/manual deployment artifacts
+UPLOAD_ME/
+staging/
+temp_zip_content/
+
+# Data import guru (PII: nama/alamat/No HP/tgl lahir/password) — JANGAN commit
+/data_guru_pkbm.xlsx
+/tools/import_guru_pkbm.sql
+/tools/*.tsv
+
+# Runtime writable folders
+sessions/
+logs/

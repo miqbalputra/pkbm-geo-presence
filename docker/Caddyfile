@@ -1,0 +1,47 @@
+{
+	auto_https off
+}
+
+:80 {
+	root * /var/www/html
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	header /api/* Cache-Control "no-store, no-cache, must-revalidate"
+
+	@blockedApiFiles {
+		path /api/config.php /api/security.php /api/security_subdomain.php /api/config_laragon.php /api/config_subdomain.php /api/debug_simple.php /api/debug_workdays.php /api/debug_presensi.php
+	}
+	respond @blockedApiFiles 404
+
+	@blockedDataFiles {
+		path /migrations/* /*.sql
+	}
+	respond @blockedDataFiles 404
+
+	handle /api/* {
+		php_server
+	}
+
+	@assets path /assets/* /icon-192.png /icon-512.png
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header /sw.js Cache-Control "no-cache, no-store, must-revalidate"
+	header /manifest.json Cache-Control "public, max-age=3600"
+
+	# Static assets: serve directly, 404 if missing (NO html fallback)
+	# Mencegah Cloudflare cache response text/html untuk file JS/CSS
+	handle @assets {
+		file_server
+	}
+
+	# SPA fallback: hanya untuk navigasi (bukan /assets/*)
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
