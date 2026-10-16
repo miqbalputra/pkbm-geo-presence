@@ -21,6 +21,7 @@ var (
 	errRevisionNoChange           = errors.New("usulan revisi sama dengan catatan presensi saat ini")
 	errRevisionAlreadyReviewed    = errors.New("pengajuan revisi sudah diproses")
 	errRevisionStale              = errors.New("catatan presensi sudah berubah setelah pengajuan dibuat")
+	errRevisionPokjarStatus       = errors.New("Pokjar hanya menggunakan status Hadir, Izin, atau Sakit tanpa jam pulang")
 )
 
 var revisableAttendanceStatuses = []string{"hadir", "hadir_terlambat", "hadir_izin_terlambat", "izin", "sakit"}
@@ -64,15 +65,18 @@ func (h *Handler) listAttendanceRevisionRequests(c *fiber.Ctx) error {
 		userIDs = append(userIDs, request.UserID)
 	}
 	var teachers []models.User
-	if err := h.db.Select("id", "nama").Where("id IN ?", userIDs).Find(&teachers).Error; err != nil {
+	if err := h.db.Select("id", "nama", "pokjar").Where("id IN ?", userIDs).Find(&teachers).Error; err != nil {
 		return err
 	}
 	names := make(map[uint]string, len(teachers))
+	pokjarByUser := make(map[uint]bool, len(teachers))
 	for _, teacher := range teachers {
 		names[teacher.ID] = teacher.Nama
+		pokjarByUser[teacher.ID] = teacher.Pokjar != nil && strings.TrimSpace(*teacher.Pokjar) != ""
 	}
 	data := make([]fiber.Map, 0, len(requests))
 	for _, request := range requests {
+		request.IsPokjar = pokjarByUser[request.UserID]
 		data = append(data, mapAttendanceRevisionRequest(request, names[request.UserID]))
 	}
 	return httpx.Success(c, "Pengajuan revisi presensi", data)
@@ -86,6 +90,11 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 	if claims.Role != "guru" {
 		return fiber.ErrForbidden
 	}
+	var teacher models.User
+	if err := h.db.Select("id", "pokjar").Where("id = ? AND role = ?", claims.UserID, "guru").First(&teacher).Error; err != nil {
+		return err
+	}
+	isPokjar := teacher.Pokjar != nil && strings.TrimSpace(*teacher.Pokjar) != ""
 	body, err := readJSON(c)
 	if err != nil {
 		return invalid(c, err.Error())
@@ -102,6 +111,9 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 	if !contains(revisableAttendanceStatuses, status) {
 		return invalid(c, "Status usulan tidak valid")
 	}
+	if isPokjar && !isAllowedPokjarStatus(status) {
+		return invalid(c, "Pokjar hanya dapat mengajukan revisi dengan status Hadir, Izin, atau Sakit")
+	}
 	jamMasuk, err := proposedRevisionTime(stringValue(body, "proposed_jam_masuk", "proposedJamMasuk"), "Jam masuk")
 	if err != nil {
 		return invalid(c, err.Error())
@@ -109,6 +121,9 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 	jamPulang, err := proposedRevisionTime(stringValue(body, "proposed_jam_pulang", "proposedJamPulang"), "Jam pulang")
 	if err != nil {
 		return invalid(c, err.Error())
+	}
+	if isPokjar && jamPulang != nil {
+		return invalid(c, "Presensi Pokjar tidak menggunakan jam pulang")
 	}
 	if isPresentRevisionStatus(status) && jamMasuk == nil {
 		return invalid(c, "Jam masuk wajib diisi untuk status hadir")
@@ -158,6 +173,7 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 			ProposedKeterangan: pointerString(proposedNote),
 			Alasan:             reason,
 			Status:             "pending",
+			IsPokjar:           isPokjar,
 		}
 		return tx.Create(&created).Error
 	})
@@ -223,7 +239,22 @@ func (h *Handler) reviewAttendanceRevisionRequest(c *fiber.Ctx, approve bool) er
 		if reviewed.Status != "pending" {
 			return errRevisionAlreadyReviewed
 		}
+		var teacher models.User
+		if err := tx.Select("id", "role", "pokjar").First(&teacher, reviewed.UserID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errRevisionStale
+			}
+			return err
+		}
+		if teacher.Role != "guru" {
+			return errRevisionStale
+		}
+		isPokjar := teacher.Pokjar != nil && strings.TrimSpace(*teacher.Pokjar) != ""
+		reviewed.IsPokjar = isPokjar
 		if approve {
+			if isPokjar && (!isAllowedPokjarStatus(reviewed.ProposedStatus) || reviewed.ProposedJamPulang != nil) {
+				return errRevisionPokjarStatus
+			}
 			var attendance models.AttendanceLog
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&attendance, reviewed.AttendanceID).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -246,7 +277,11 @@ func (h *Handler) reviewAttendanceRevisionRequest(c *fiber.Ctx, approve bool) er
 			if isPresentRevisionStatus(reviewed.ProposedStatus) {
 				updates["jam_masuk"] = reviewed.ProposedJamMasuk
 				updates["jam_hadir"] = reviewed.ProposedJamMasuk
-				updates["jam_pulang"] = reviewed.ProposedJamPulang
+				if isPokjar {
+					updates["jam_pulang"] = nil
+				} else {
+					updates["jam_pulang"] = reviewed.ProposedJamPulang
+				}
 			} else {
 				updates["jam_masuk"] = nil
 				updates["jam_hadir"] = nil
@@ -308,6 +343,8 @@ func (h *Handler) reviewAttendanceRevisionRequest(c *fiber.Ctx, approve bool) er
 		return httpx.Error(c, fiber.StatusConflict, "REVISION_ALREADY_REVIEWED", "Pengajuan revisi sudah diproses")
 	case errors.Is(err, errRevisionStale):
 		return httpx.Error(c, fiber.StatusConflict, "ATTENDANCE_CHANGED", "Catatan presensi sudah berubah. Muat ulang daftar sebelum menyetujui pengajuan ini.")
+	case errors.Is(err, errRevisionPokjarStatus):
+		return httpx.Error(c, fiber.StatusConflict, "POKJAR_STATUS_NOT_ALLOWED", "Pokjar hanya menggunakan status Hadir, Izin, atau Sakit tanpa jam pulang")
 	case err != nil:
 		return err
 	}
@@ -325,6 +362,7 @@ func mapAttendanceRevisionRequest(request models.AttendanceRevisionRequest, teac
 		"attendance_id":       request.AttendanceID,
 		"tanggal":             dateOnly(request.Tanggal).Format("2006-01-02"),
 		"nama_guru":           teacherName,
+		"is_pokjar":           request.IsPokjar,
 		"original_status":     request.OriginalStatus,
 		"original_jam_masuk":  request.OriginalJamMasuk,
 		"original_jam_hadir":  request.OriginalJamHadir,

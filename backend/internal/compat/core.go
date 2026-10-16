@@ -380,6 +380,9 @@ func (h *Handler) createAttendance(c *fiber.Ctx, claims *auth.Claims, body map[s
 	if !contains([]string{"hadir", "hadir_terlambat", "hadir_izin_terlambat", "izin", "sakit"}, status) {
 		return invalid(c, "Status presensi tidak valid")
 	}
+	if isPokjar && !isAllowedPokjarStatus(status) {
+		return invalid(c, "Guru Pokjar hanya dapat mencatat status Hadir, Izin, atau Sakit")
+	}
 	date := stringValue(body, "tanggal")
 	if claims.Role == "guru" || date == "" {
 		date = today(h)
@@ -603,6 +606,17 @@ func (h *Handler) updateAttendance(c *fiber.Ctx, claims *auth.Claims, body map[s
 	}
 	if !contains([]string{"hadir", "hadir_terlambat", "hadir_izin_terlambat", "izin", "sakit"}, status) {
 		return invalid(c, "Status presensi tidak valid")
+	}
+	var attendanceOwner models.User
+	if err := h.db.Select("id", "pokjar").First(&attendanceOwner, record.UserID).Error; err != nil {
+		return err
+	}
+	isPokjar := attendanceOwner.Pokjar != nil && strings.TrimSpace(*attendanceOwner.Pokjar) != ""
+	if isPokjar && !isAllowedPokjarStatus(status) {
+		return invalid(c, "Presensi guru Pokjar hanya menggunakan status Hadir, Izin, atau Sakit")
+	}
+	if isPokjar && strings.TrimSpace(stringValue(body, "jamPulang", "jam_pulang")) != "" {
+		return invalid(c, "Presensi guru Pokjar tidak menggunakan jam pulang")
 	}
 	updates := map[string]any{"status": status}
 	if value := stringValue(body, "jamMasuk", "jam_masuk"); value != "" {

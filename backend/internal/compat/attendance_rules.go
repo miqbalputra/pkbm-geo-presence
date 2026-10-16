@@ -92,6 +92,10 @@ func classifyCheckIn(user models.User, checkedInAt time.Time, target, targetLabe
 	return "hadir_terlambat", "Terlambat " + strconv.Itoa(lateMinutes) + " menit" + severity + targetLabel
 }
 
+func isAllowedPokjarStatus(status string) bool {
+	return status == "hadir" || status == "izin" || status == "sakit"
+}
+
 // lateMinutesForAttendance calculates the delay relative to the same effective
 // target used when classifying check-ins. It deliberately returns nil when a
 // check-in time is absent or not later than its target, so the peer-status API

@@ -10,6 +10,7 @@ type RevisionRequest = {
   id: number
   user_id: number
   nama_guru?: string
+  is_pokjar?: boolean
   tanggal: string
   original_status: string
   original_jam_masuk?: string | null
@@ -58,6 +59,10 @@ export default function AttendanceRevisionRequests() {
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
   const [notice, setNotice] = useState('')
+  const invalidPokjarProposal = (request: RevisionRequest) => request.is_pokjar && (
+    !['hadir', 'izin', 'sakit'].includes(request.proposed_status) ||
+    Boolean((request.proposed_jam_pulang || '').trim())
+  )
 
   const loadRequests = useCallback(async () => {
     setLoading(true)
@@ -114,16 +119,17 @@ export default function AttendanceRevisionRequests() {
     {actionError && <Notice tone="error" onDismiss={() => setActionError('')}>{actionError}</Notice>}
     {notice && <Notice tone="success" onDismiss={() => setNotice('')}>{notice}</Notice>}
     {loading ? <PageLoading /> : requests.length ? <div className="space-y-4">{requests.map((request) => <Card key={request.id} className="gap-4 p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-semibold">{request.nama_guru || 'Guru'} · {dateLabel(request.tanggal)}</h2><p className="mt-1 text-xs text-muted-foreground">Diajukan {new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' }).format(new Date(request.created_at))}</p></div>{statusBadge(request.status)}</div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-semibold">{request.nama_guru || 'Guru'} · {dateLabel(request.tanggal)}</h2><p className="mt-1 text-xs text-muted-foreground">Diajukan {new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' }).format(new Date(request.created_at))}{request.is_pokjar ? ' · Pokjar, tanpa presensi pulang' : ''}</p></div>{statusBadge(request.status)}</div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <section className="rounded-lg border border-border bg-muted/40 p-3"><h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Catatan saat ini</h3><p className="mt-2 text-sm font-semibold">{labels[request.original_status] || request.original_status}</p><p className="mt-1 text-sm tabular-nums">Masuk {timeLabel(request.original_jam_masuk || request.original_jam_hadir)} · Pulang {timeLabel(request.original_jam_pulang)}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.original_keterangan || 'Tanpa keterangan'}</p></section>
-        <section className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-900 dark:bg-blue-950/20"><h3 className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Usulan guru</h3><p className="mt-2 text-sm font-semibold">{labels[request.proposed_status] || request.proposed_status}</p><p className="mt-1 text-sm tabular-nums">Masuk {timeLabel(request.proposed_jam_masuk)} · Pulang {timeLabel(request.proposed_jam_pulang)}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.proposed_keterangan || 'Tanpa keterangan'}</p></section>
+        <section className="rounded-lg border border-border bg-muted/40 p-3"><h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Catatan saat ini</h3><p className="mt-2 text-sm font-semibold">{labels[request.original_status] || request.original_status}</p><p className="mt-1 text-sm tabular-nums">Masuk {timeLabel(request.original_jam_masuk || request.original_jam_hadir)}{request.is_pokjar ? ' · tanpa jam pulang' : ` · Pulang ${timeLabel(request.original_jam_pulang)}`}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.original_keterangan || 'Tanpa keterangan'}</p></section>
+        <section className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-900 dark:bg-blue-950/20"><h3 className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Usulan guru</h3><p className="mt-2 text-sm font-semibold">{labels[request.proposed_status] || request.proposed_status}</p><p className="mt-1 text-sm tabular-nums">Masuk {timeLabel(request.proposed_jam_masuk)}{request.is_pokjar ? ' · tanpa jam pulang' : ` · Pulang ${timeLabel(request.proposed_jam_pulang)}`}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.proposed_keterangan || 'Tanpa keterangan'}</p></section>
       </div>
       <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs font-semibold text-muted-foreground">Alasan guru</p><p className="mt-1 whitespace-pre-wrap text-sm">{request.alasan}</p></div>
+      {request.status === 'pending' && invalidPokjarProposal(request) && <Notice tone="error">Pokjar hanya menggunakan status Hadir, Izin, atau Sakit tanpa jam pulang. Pengajuan ini tidak dapat disetujui; tolak dengan catatan kepada guru.</Notice>}
       {request.admin_note && <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs font-semibold text-muted-foreground">Catatan admin</p><p className="mt-1 whitespace-pre-wrap text-sm">{request.admin_note}</p></div>}
       {request.status === 'pending' && <div className="space-y-3 border-t border-border pt-4">
         <label className="grid gap-1.5 text-sm font-medium">Catatan keputusan admin<textarea className="academy-input min-h-20 resize-y px-3 py-2" value={notes[request.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [request.id]: event.target.value }))} maxLength={1000} placeholder="Wajib diisi jika pengajuan ditolak." /></label>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" className="text-rose-700 hover:text-rose-800" disabled={busyId !== null || (notes[request.id] || '').trim().length < 5} onClick={() => void review(request, 'reject')}>{busyId === request.id ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <X aria-hidden="true" />}Tolak pengajuan</Button><Button type="button" disabled={busyId !== null} onClick={() => void review(request, 'approve')}>{busyId === request.id ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <Check aria-hidden="true" />}Setujui & terapkan</Button></div>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" className="text-rose-700 hover:text-rose-800" disabled={busyId !== null || (notes[request.id] || '').trim().length < 5} onClick={() => void review(request, 'reject')}>{busyId === request.id ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <X aria-hidden="true" />}Tolak pengajuan</Button><Button type="button" disabled={busyId !== null || invalidPokjarProposal(request)} onClick={() => void review(request, 'approve')}>{busyId === request.id ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <Check aria-hidden="true" />}Setujui & terapkan</Button></div>
       </div>}
     </Card>)}</div> : <Card><EmptyState title="Tidak ada pengajuan pada filter ini" description={filter === 'pending' ? 'Pengajuan baru dari guru akan muncul di sini.' : 'Ubah filter untuk melihat pengajuan lainnya.'} /></Card>}
     <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100"><ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Sebelum menyetujui, cocokkan tanggal, catatan saat ini, usulan guru, dan alasan. Sistem menolak persetujuan jika catatan presensi berubah sejak pengajuan dibuat.</div>

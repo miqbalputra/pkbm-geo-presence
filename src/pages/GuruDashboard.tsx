@@ -200,7 +200,7 @@ function GuruDashboard({ user, onLogout, installBanner }) {
             {activeTab !== 'home' && activeTab !== 'akun' && (
               <Suspense fallback={<TabLoading />}>
                 {activeTab === 'riwayat' && <GuruRiwayat user={user} />}
-                {activeTab === 'revisi' && <GuruAttendanceRevisions />}
+                {activeTab === 'revisi' && <GuruAttendanceRevisions user={user} />}
                 {activeTab === 'status' && <GuruStatus />}
                 {activeTab === 'peringkat' && <GuruPeringkat user={user} />}
                 {activeTab === 'statistik' && <GuruStatistik user={user} />}

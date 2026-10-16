@@ -30,6 +30,7 @@ type RevisionRequest = {
   proposed_jam_masuk?: string | null
   proposed_jam_pulang?: string | null
   proposed_keterangan?: string | null
+  is_pokjar?: boolean
   alasan: string
   status: 'pending' | 'approved' | 'rejected'
   admin_note?: string | null
@@ -80,7 +81,9 @@ const emptyForm = {
   alasan: '',
 }
 
-export default function GuruAttendanceRevisions() {
+export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: string | null } }) {
+  const isPokjar = Boolean(String(user?.pokjar || '').trim())
+  const availableStatuses = isPokjar ? statuses.filter((status) => ['hadir', 'izin', 'sakit'].includes(status.value)) : statuses
   const [records, setRecords] = useState<AttendanceRow[]>([])
   const [requests, setRequests] = useState<RevisionRequest[]>([])
   const [loading, setLoading] = useState(true)
@@ -129,7 +132,7 @@ export default function GuruAttendanceRevisions() {
     setForm({
       ...emptyForm,
       attendanceId: String(firstAvailable.id),
-      status: statuses.some((item) => item.value === firstAvailable.status) ? firstAvailable.status : 'hadir',
+      status: availableStatuses.some((item) => item.value === firstAvailable.status) ? firstAvailable.status : 'hadir',
       jamMasuk: timeValue(firstAvailable.jam_masuk || firstAvailable.jam_hadir),
       jamPulang: timeValue(firstAvailable.jam_pulang),
       keterangan: firstAvailable.keterangan || '',
@@ -145,7 +148,7 @@ export default function GuruAttendanceRevisions() {
     setForm((current) => ({
       ...current,
       attendanceId,
-      status: statuses.some((item) => item.value === record.status) ? record.status : 'hadir',
+      status: availableStatuses.some((item) => item.value === record.status) ? record.status : 'hadir',
       jamMasuk: timeValue(record.jam_masuk || record.jam_hadir),
       jamPulang: timeValue(record.jam_pulang),
       keterangan: record.keterangan || '',
@@ -163,7 +166,7 @@ export default function GuruAttendanceRevisions() {
         attendance_id: Number(form.attendanceId),
         proposed_status: form.status,
         proposed_jam_masuk: presentStatuses.has(form.status) ? form.jamMasuk : '',
-        proposed_jam_pulang: presentStatuses.has(form.status) ? form.jamPulang : '',
+        proposed_jam_pulang: presentStatuses.has(form.status) && !isPokjar ? form.jamPulang : '',
         proposed_keterangan: form.keterangan,
         alasan: form.alasan,
       })
@@ -205,8 +208,8 @@ export default function GuruAttendanceRevisions() {
           return <article key={request.id} className="space-y-3 px-5 py-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><FileClock className="h-4 w-4 text-primary" aria-hidden="true" /><h3 className="text-sm font-semibold">{dateLabel(request.tanggal)}</h3></div><Badge variant={status.variant}>{status.label}</Badge></div>
             <div className="grid gap-3 rounded-lg bg-muted/50 p-3 text-sm sm:grid-cols-2">
-              <div><p className="text-xs font-semibold text-muted-foreground">Catatan awal</p><p className="mt-1">{statusLabel(request.original_status)} · {displayTime(request.original_jam_masuk || request.original_jam_hadir)} / {displayTime(request.original_jam_pulang)}</p></div>
-              <div><p className="text-xs font-semibold text-muted-foreground">Usulan</p><p className="mt-1 font-medium">{statusLabel(request.proposed_status)} · {displayTime(request.proposed_jam_masuk)} / {displayTime(request.proposed_jam_pulang)}</p></div>
+              <div><p className="text-xs font-semibold text-muted-foreground">Catatan awal</p><p className="mt-1">{statusLabel(request.original_status)} · Masuk {displayTime(request.original_jam_masuk || request.original_jam_hadir)}{isPokjar ? ' · tanpa jam pulang' : ` / Pulang ${displayTime(request.original_jam_pulang)}`}</p></div>
+              <div><p className="text-xs font-semibold text-muted-foreground">Usulan</p><p className="mt-1 font-medium">{statusLabel(request.proposed_status)} · Masuk {displayTime(request.proposed_jam_masuk)}{isPokjar ? ' · tanpa jam pulang' : ` / Pulang ${displayTime(request.proposed_jam_pulang)}`}</p></div>
             </div>
             <div className="space-y-1 text-sm"><p><span className="font-semibold">Alasan:</span> {request.alasan}</p>{request.proposed_keterangan && <p><span className="font-semibold">Keterangan usulan:</span> {request.proposed_keterangan}</p>}{request.admin_note && <p className={request.status === 'rejected' ? 'text-rose-700 dark:text-rose-300' : 'text-muted-foreground'}><span className="font-semibold">Catatan admin:</span> {request.admin_note}</p>}</div>
           </article>
@@ -223,15 +226,15 @@ export default function GuruAttendanceRevisions() {
             {records.map((record) => <option key={record.id} value={record.id} disabled={pendingAttendanceIds.has(record.id)}>{dateLabel(record.tanggal)} · {statusLabel(record.status)}{pendingAttendanceIds.has(record.id) ? ' · menunggu admin' : ''}</option>)}
           </select>
         </label>
-        {selectedAttendance && <p className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground"><Clock3 className="h-4 w-4 shrink-0" aria-hidden="true" />Saat ini: {statusLabel(selectedAttendance.status)}, masuk {displayTime(selectedAttendance.jam_masuk || selectedAttendance.jam_hadir)}, pulang {displayTime(selectedAttendance.jam_pulang)}</p>}
+        {selectedAttendance && <p className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground"><Clock3 className="h-4 w-4 shrink-0" aria-hidden="true" />Saat ini: {statusLabel(selectedAttendance.status)}, masuk {displayTime(selectedAttendance.jam_masuk || selectedAttendance.jam_hadir)}{isPokjar ? ' · tanpa jam pulang' : ` · pulang ${displayTime(selectedAttendance.jam_pulang)}`}</p>}
         <label className="grid gap-1.5 text-sm font-medium">Status yang diusulkan
           <select className="academy-input min-h-11 px-3" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value, ...(presentStatuses.has(event.target.value) ? {} : { jamMasuk: '', jamPulang: '' }) }))}>
-            {statuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+            {availableStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
           </select>
         </label>
-        {presentStatuses.has(form.status) && <div className="grid gap-3 sm:grid-cols-2">
+        {presentStatuses.has(form.status) && <div className={`grid gap-3 ${isPokjar ? '' : 'sm:grid-cols-2'}`}>
           <label className="grid gap-1.5 text-sm font-medium">Jam masuk yang benar<input className="academy-input min-h-11 px-3" type="time" value={form.jamMasuk} onChange={(event) => setForm((current) => ({ ...current, jamMasuk: event.target.value }))} required /></label>
-          <label className="grid gap-1.5 text-sm font-medium">Jam pulang<input className="academy-input min-h-11 px-3" type="time" value={form.jamPulang} onChange={(event) => setForm((current) => ({ ...current, jamPulang: event.target.value }))} /></label>
+          {!isPokjar && <label className="grid gap-1.5 text-sm font-medium">Jam pulang<input className="academy-input min-h-11 px-3" type="time" value={form.jamPulang} onChange={(event) => setForm((current) => ({ ...current, jamPulang: event.target.value }))} /></label>}
         </div>}
         <label className="grid gap-1.5 text-sm font-medium">Keterangan presensi yang benar<textarea className="academy-input min-h-24 resize-y px-3 py-2" value={form.keterangan} onChange={(event) => setForm((current) => ({ ...current, keterangan: event.target.value }))} maxLength={2000} /></label>
         <label className="grid gap-1.5 text-sm font-medium">Alasan revisi<textarea className="academy-input min-h-24 resize-y px-3 py-2" value={form.alasan} onChange={(event) => setForm((current) => ({ ...current, alasan: event.target.value }))} minLength={5} maxLength={1000} required placeholder="Jelaskan mengapa catatan ini perlu diperbaiki." /></label>

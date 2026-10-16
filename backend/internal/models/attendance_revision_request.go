@@ -24,6 +24,7 @@ type AttendanceRevisionRequest struct {
 	CreatedAt          time.Time  `gorm:"column:created_at;autoCreateTime;index:idx_attendance_revision_user_created,priority:2" json:"created_at"`
 	UpdatedAt          time.Time  `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 	NamaGuru           string     `gorm:"-" json:"nama_guru,omitempty"`
+	IsPokjar           bool       `gorm:"-" json:"-"`
 }
 
 func (AttendanceRevisionRequest) TableName() string { return "attendance_revision_requests" }
