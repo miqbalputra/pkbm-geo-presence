@@ -164,7 +164,10 @@ export const authAPI = {
   },
 
   checkSession: async () => {
-    if (!accessToken) await refreshAccessToken()
+    // A page reload clears the in-memory access token. The refresh endpoint
+    // already validates the HttpOnly refresh cookie and returns the public
+    // user payload, so reuse that response instead of making a second /me call.
+    if (!accessToken) return authAPI.restoreSession()
     return fetchAPI('/v1/auth/me', {
       method: 'GET',
     })
