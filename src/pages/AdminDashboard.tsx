@@ -38,7 +38,7 @@ function SectionLoading() {
   )
 }
 
-function AdminDashboard({ user, onLogout, installBanner }) {
+function AdminDashboard({ user, onLogout }) {
   const { theme, toggle } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // V2 starts expanded so menu labels are visible by default. The previous
@@ -133,7 +133,6 @@ function AdminDashboard({ user, onLogout, installBanner }) {
         </header>
 
         <main id="admin-main-content" tabIndex={-1} key={location.pathname} className="flex-1 overflow-x-hidden overflow-y-auto p-4 outline-none sm:p-6 lg:p-8">
-          {location.pathname === '/admin/pengaturan' && installBanner}
           <div className="mx-auto w-full max-w-[1600px]">
             <Suspense fallback={<SectionLoading />}>
               <Routes>

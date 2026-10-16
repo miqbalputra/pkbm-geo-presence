@@ -16,6 +16,38 @@ function PageLoading() {
   )
 }
 
+const PWA_INSTALL_DISMISSED_KEY = 'pwa-install-dismissed-session'
+
+function hasDismissedInstallPrompt() {
+  try {
+    return sessionStorage.getItem(PWA_INSTALL_DISMISSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function isRunningAsInstalledApp() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+}
+
+function getInstallInstructions() {
+  const userAgent = navigator.userAgent || ''
+  const isIOS = /iPhone|iPad|iPod/i.test(userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
+  if (isIOS) {
+    return 'Di Safari, ketuk tombol Bagikan lalu pilih “Tambahkan ke Layar Utama”.'
+  }
+  if (/Android/i.test(userAgent)) {
+    return 'Buka menu ⋮ pada browser, lalu pilih “Install app” atau “Tambahkan ke layar utama”.'
+  }
+  if (/Safari/i.test(userAgent) && !/(Chrome|Chromium|CriOS|Edg|OPR)/i.test(userAgent)) {
+    return 'Di Safari macOS, buka menu File lalu pilih “Add to Dock”.'
+  }
+  return 'Di Chrome atau Edge, klik ikon Pasang pada bilah alamat atau pilih “Install Presensi PKBM” dari menu browser.'
+}
+
 // ─── Error Boundary: mencegah white screen akibat uncaught error di child ───
 type ErrorBoundaryProps = { children?: React.ReactNode }
 type ErrorBoundaryState = { hasError: boolean; error: Error | null }
@@ -74,6 +106,8 @@ function App() {
   const inactivityTimerRef = useRef(null)
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstallPrompt, setShowInstallPrompt] = useState(false)
+  const [showInstallHelp, setShowInstallHelp] = useState(false)
+  const [appInstalled, setAppInstalled] = useState(false)
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000 // 30 menit dalam milidetik
 
   // Didefinisikan sebelum useEffect agar bisa dipakai di dalam syncSession
@@ -158,16 +192,42 @@ function App() {
 
     void syncSession().finally(() => setSessionLoading(false))
 
-    // PWA Logic: Catch install prompt
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      // Show prompt after 5 seconds if not installed yet
-      setTimeout(() => {
-        setShowInstallPrompt(true);
-      }, 5000);
-    });
+  }, [])
 
+  useEffect(() => {
+    if (isRunningAsInstalledApp()) {
+      setAppInstalled(true)
+      return undefined
+    }
+
+    const showTimer = hasDismissedInstallPrompt()
+      ? undefined
+      : window.setTimeout(() => {
+        if (!hasDismissedInstallPrompt()) setShowInstallPrompt(true)
+      }, 5000)
+
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault()
+      setDeferredPrompt(event)
+      setShowInstallHelp(false)
+      if (!hasDismissedInstallPrompt()) setShowInstallPrompt(true)
+    }
+
+    const handleAppInstalled = () => {
+      setAppInstalled(true)
+      setDeferredPrompt(null)
+      setShowInstallPrompt(false)
+      setShowInstallHelp(false)
+    }
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleAppInstalled)
+
+    return () => {
+      if (showTimer !== undefined) window.clearTimeout(showTimer)
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleAppInstalled)
+    }
   }, [])
 
   // Auto-logout setelah 30 menit tidak ada aktivitas (Hanya untuk Admin/Kepala Sekolah)
@@ -211,22 +271,30 @@ function App() {
   }, [user])
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      console.log('User accepted the install prompt');
+    if (!deferredPrompt) {
+      setShowInstallHelp((visible) => !visible)
+      return
+    }
+
+    try {
+      await deferredPrompt.prompt()
+      const { outcome } = await deferredPrompt.userChoice
+      if (outcome === 'accepted') setAppInstalled(true)
+      try { sessionStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1') } catch { /* Ignore unavailable storage. */ }
+      setShowInstallPrompt(false)
+      setShowInstallHelp(false)
+    } catch (error) {
+      console.warn('Install prompt could not be opened:', error)
+      setShowInstallHelp(true)
     }
     setDeferredPrompt(null);
-    setShowInstallPrompt(false);
   }
 
-  const installBanner = showInstallPrompt && deferredPrompt ? (
-    <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4" aria-label="Pasang aplikasi">
-      <div className="flex items-center gap-3"><Download className="h-5 w-5 text-primary" aria-hidden="true" /><div><p className="text-sm font-semibold">Pasang Presensi PKBM</p><p className="text-xs text-muted-foreground">Buka langsung dari layar utama perangkat.</p></div></div>
-      <div className="flex items-center gap-2"><button onClick={handleInstallClick} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Pasang</button><button aria-label="Tutup ajakan pemasangan" onClick={() => setShowInstallPrompt(false)} className="ui-icon-button"><X className="h-5 w-5" /></button></div>
-    </aside>
-  ) : null
+  const dismissInstallPrompt = () => {
+    setShowInstallPrompt(false)
+    setShowInstallHelp(false)
+    try { sessionStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1') } catch { /* Ignore unavailable storage. */ }
+  }
 
   return (
     <ErrorBoundary>
@@ -239,18 +307,38 @@ function App() {
             } />
             <Route path="/admin/*" element={
               user && (user.role === 'admin' || user.role === 'kepala_sekolah') ?
-              <AdminDashboard user={user} onLogout={handleLogout} installBanner={installBanner} /> :
+              <AdminDashboard user={user} onLogout={handleLogout} /> :
               <Navigate to="/login" />
             } />
             <Route path="/guru/*" element={
               user && user.role === 'guru' ?
-              <GuruDashboard user={user} onLogout={handleLogout} installBanner={installBanner} /> :
+              <GuruDashboard user={user} onLogout={handleLogout} /> :
               <Navigate to="/login" />
             } />
             <Route path="/" element={<Navigate to="/login" />} />
           </Routes>}
         </Suspense>
-
+        {showInstallPrompt && !appInstalled && <aside
+          className={`fixed left-3 right-3 z-[80] mx-auto max-w-md rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl ${user?.role === 'guru' ? 'bottom-24 sm:bottom-5' : 'bottom-5'} sm:left-auto sm:right-5`}
+          aria-label="Ajakan memasang Presensi PKBM"
+        >
+          <div className="flex items-start gap-3">
+            <Download className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">Pasang Presensi PKBM</p>
+              <p className="mt-1 text-xs text-muted-foreground">Buka presensi lebih mudah dari layar utama perangkat.</p>
+            </div>
+            <button type="button" aria-label="Tutup ajakan pemasangan" onClick={dismissInstallPrompt} className="ui-icon-button -mr-2 -mt-2 h-10 w-10">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          {showInstallHelp && <p role="status" className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground">{getInstallInstructions()}</p>}
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={handleInstallClick} className="min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90">
+              {deferredPrompt ? 'Pasang sekarang' : showInstallHelp ? 'Sembunyikan petunjuk' : 'Cara pasang'}
+            </button>
+          </div>
+        </aside>}
 
       </Router>
     </ErrorBoundary>

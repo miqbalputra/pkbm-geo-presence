@@ -39,7 +39,7 @@ function TabLoading() {
   )
 }
 
-function GuruDashboard({ user, onLogout, installBanner }) {
+function GuruDashboard({ user, onLogout }) {
   const { theme, toggle } = useTheme()
   const { pathname } = useLocation()
   const navigate = useNavigate()
@@ -197,7 +197,6 @@ function GuruDashboard({ user, onLogout, installBanner }) {
         </header>
 
         <main id="guru-main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 pb-28 pt-4 outline-none sm:px-6 lg:px-8 lg:pb-12">
-          {activeTab === 'akun' && installBanner}
           <GuruMonthlyConfirmation onDialogStateChange={handleMonthlyDialogStateChange} onRequestRevision={openRevisionForDate} />
           {!user?.pokjar && <GuruGmailReminder user={user} activeTab={activeTab} blocked={!monthlyDialogState.ready || monthlyDialogState.open} onGmailStatusChange={handleGmailStatusChange} />}
           <div key={activeTab} className="animate-fade-in">
