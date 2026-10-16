@@ -49,6 +49,7 @@ function GuruDashboard({ user, onLogout, installBanner }) {
   // preference is reset once because it made the menu hard to scan.
   const [sidebarOpen, setSidebarOpen] = useState(() => readStorage('guru-sidebar-expanded-v2', '1') === '1')
   const [monthlyDialogState, setMonthlyDialogState] = useState({ open: false, ready: false })
+  const [revisionDateToOpen, setRevisionDateToOpen] = useState<string | null>(null)
   const [gmailComplete, setGmailComplete] = useState(false)
   const handleMonthlyDialogStateChange = useCallback((open: boolean, ready: boolean) => {
     setMonthlyDialogState({ open, ready })
@@ -56,6 +57,11 @@ function GuruDashboard({ user, onLogout, installBanner }) {
   const handleGmailStatusChange = useCallback((complete: boolean) => {
     setGmailComplete(complete)
   }, [])
+  const openRevisionForDate = useCallback((date: string) => {
+    setRevisionDateToOpen(date)
+    navigate('/guru/revisi')
+  }, [navigate])
+  const clearRevisionDate = useCallback(() => setRevisionDateToOpen(null), [])
 
   const tabs = [
     { id: 'home', label: 'Beranda', icon: Home },
@@ -192,7 +198,7 @@ function GuruDashboard({ user, onLogout, installBanner }) {
 
         <main id="guru-main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 pb-28 pt-4 outline-none sm:px-6 lg:px-8 lg:pb-12">
           {activeTab === 'akun' && installBanner}
-          <GuruMonthlyConfirmation onDialogStateChange={handleMonthlyDialogStateChange} />
+          <GuruMonthlyConfirmation onDialogStateChange={handleMonthlyDialogStateChange} onRequestRevision={openRevisionForDate} />
           {!user?.pokjar && <GuruGmailReminder user={user} activeTab={activeTab} blocked={!monthlyDialogState.ready || monthlyDialogState.open} onGmailStatusChange={handleGmailStatusChange} />}
           <div key={activeTab} className="animate-fade-in">
             {activeTab === 'home' && <GuruHome user={user} onChangeTab={setActiveTab} gmailComplete={gmailComplete} />}
@@ -200,7 +206,7 @@ function GuruDashboard({ user, onLogout, installBanner }) {
             {activeTab !== 'home' && activeTab !== 'akun' && (
               <Suspense fallback={<TabLoading />}>
                 {activeTab === 'riwayat' && <GuruRiwayat user={user} />}
-                {activeTab === 'revisi' && <GuruAttendanceRevisions user={user} />}
+                {activeTab === 'revisi' && <GuruAttendanceRevisions user={user} requestDate={revisionDateToOpen} onRequestDateHandled={clearRevisionDate} />}
                 {activeTab === 'status' && <GuruStatus />}
                 {activeTab === 'peringkat' && <GuruPeringkat user={user} />}
                 {activeTab === 'statistik' && <GuruStatistik user={user} />}

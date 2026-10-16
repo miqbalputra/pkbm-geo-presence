@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, Clock3, MessageCircle } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, Clock3, MessageCircle, PencilLine } from 'lucide-react'
 import { monthlyAttendanceConfirmationAPI } from '../../services/api'
 import { AppDialog } from '../ui/dialog'
 import { Button } from '../ui/button'
@@ -79,7 +79,7 @@ function ReminderBanner({ confirmation, onReview }: { confirmation: any; onRevie
   </section>
 }
 
-export default function GuruMonthlyConfirmation({ onDialogStateChange }: { onDialogStateChange?: (open: boolean, ready: boolean) => void } = {}) {
+export default function GuruMonthlyConfirmation({ onDialogStateChange, onRequestRevision }: { onDialogStateChange?: (open: boolean, ready: boolean) => void; onRequestRevision?: (date: string) => void } = {}) {
   const [confirmation, setConfirmation] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -166,6 +166,11 @@ export default function GuruMonthlyConfirmation({ onDialogStateChange }: { onDia
     }
   }
 
+  const handleRequestRevision = (date: string) => {
+    setDialogOpen(false)
+    onRequestRevision?.(date)
+  }
+
   const needsConfirmation = Boolean(confirmation?.needsConfirmation ?? confirmation?.required)
   if (loading) return null
   if (error) return <Notice onRetry={loadConfirmation}>{error}</Notice>
@@ -178,10 +183,10 @@ export default function GuruMonthlyConfirmation({ onDialogStateChange }: { onDia
 
   return <>
     <ReminderBanner confirmation={confirmation} onReview={() => setDialogOpen(true)} />
-    <AppDialog open={dialogOpen} onOpenChange={setDialogOpen} busy={busy} title="Konfirmasi Rekap Presensi" description={`Tinjau data ${confirmation?.period?.label || 'bulan sebelumnya'} untuk kebutuhan rekap penggajian.`} className="max-w-4xl">
+    <AppDialog open={dialogOpen} onOpenChange={setDialogOpen} busy={busy} title="Konfirmasi Rekap Presensi" description={`Tinjau data ${confirmation?.period?.label || 'bulan sebelumnya'} untuk kebutuhan rekap BOSP.`} className="max-w-4xl">
       <div className="space-y-4">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-          Rekap mencakup {formatDate(confirmation?.period?.startDate)} – {formatDate(confirmation?.period?.endDate)}. Persetujuan Anda dicatat sebagai bukti konfirmasi penggajian.
+          Rekap mencakup {formatDate(confirmation?.period?.startDate)} – {formatDate(confirmation?.period?.endDate)}. Persetujuan Anda dicatat sebagai bukti konfirmasi rekap BOSP.
         </div>
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -191,11 +196,11 @@ export default function GuruMonthlyConfirmation({ onDialogStateChange }: { onDia
         </div>
 
         <div className="overflow-hidden rounded-xl border border-border">
-          <div className="border-b border-border bg-muted/40 px-3 py-2"><p className="text-xs font-semibold text-foreground">Daftar presensi bulan lalu · {rows.length} tanggal</p></div>
+          <div className="border-b border-border bg-muted/40 px-3 py-2"><p className="text-xs font-semibold text-foreground">Daftar presensi bulan lalu · {rows.length} hari Sabtu kerja</p></div>
           <div className="max-h-[38vh] overflow-auto">
             <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 bg-background text-muted-foreground"><tr><th className="px-3 py-2 font-semibold">Tanggal</th><th className="px-3 py-2 font-semibold">Masuk</th><th className="px-3 py-2 font-semibold">Pulang</th><th className="px-3 py-2 font-semibold">Status</th><th className="hidden px-3 py-2 font-semibold sm:table-cell">Keterangan</th></tr></thead>
-              <tbody className="divide-y divide-border">{rows.map((row: any) => <tr key={row.tanggal}><td className="whitespace-nowrap px-3 py-2 font-medium">{formatDate(row.tanggal)}</td><td className="px-3 py-2 tabular-nums">{formatTime(row.jam_masuk)}</td><td className="px-3 py-2 tabular-nums">{formatTime(row.jam_pulang)}</td><td className="px-3 py-2"><StatusBadge status={row.status} /></td><td className="hidden max-w-56 truncate px-3 py-2 text-muted-foreground sm:table-cell">{row.keterangan || '-'}</td></tr>)}</tbody>
+              <thead className="sticky top-0 bg-background text-muted-foreground"><tr><th className="px-3 py-2 font-semibold">Tanggal</th><th className="px-3 py-2 font-semibold">Masuk</th><th className="px-3 py-2 font-semibold">Pulang</th><th className="px-3 py-2 font-semibold">Status</th><th className="hidden px-3 py-2 font-semibold sm:table-cell">Keterangan</th><th className="px-3 py-2 font-semibold"><span className="sr-only">Tindakan</span></th></tr></thead>
+              <tbody className="divide-y divide-border">{rows.length ? rows.map((row: any) => <tr key={row.tanggal}><td className="whitespace-nowrap px-3 py-2 font-medium">{formatDate(row.tanggal)}</td><td className="px-3 py-2 tabular-nums">{formatTime(row.jam_masuk)}</td><td className="px-3 py-2 tabular-nums">{formatTime(row.jam_pulang)}</td><td className="px-3 py-2"><StatusBadge status={row.status} /></td><td className="hidden max-w-56 truncate px-3 py-2 text-muted-foreground sm:table-cell">{row.keterangan || '-'}</td><td className="whitespace-nowrap px-2 py-1.5 text-right"><Button type="button" size="sm" variant="outline" className="h-8 px-2 text-[11px]" onClick={() => handleRequestRevision(row.tanggal)}><PencilLine aria-hidden="true" />Ajukan revisi</Button></td></tr>) : <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">Tidak ada Sabtu kerja pada periode ini.</td></tr>}</tbody>
             </table>
           </div>
         </div>

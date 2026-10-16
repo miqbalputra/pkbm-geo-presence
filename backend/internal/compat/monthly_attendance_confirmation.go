@@ -78,8 +78,7 @@ func (h *Handler) findMonthlyConfirmation(userID uint, periodStart time.Time) (*
 }
 
 // buildMonthlyConfirmationReport retains the canonical attendance calculation
-// while filling non-workdays so the acknowledgement always covers every date
-// in the previous calendar month.
+// while showing only scheduled, non-holiday Saturdays in the acknowledgement.
 func (h *Handler) buildMonthlyConfirmationReport(teacher models.User, start, end time.Time) (fiber.Map, error) {
 	report, err := h.buildTeacherAttendanceReport(teacher, start, end)
 	if err != nil {
@@ -111,28 +110,36 @@ func (h *Handler) buildMonthlyConfirmationReport(teacher models.User, start, end
 		overrideByDate[row.Tanggal.Format("2006-01-02")] = row
 	}
 
+	filtered := make(map[string]fiber.Map, len(rows))
 	for _, date := range dateRange(start, end) {
-		dateString := date.Format("2006-01-02")
-		if _, exists := byDate[dateString]; exists {
+		if date.Weekday() != time.Saturday {
 			continue
 		}
-		_, optional, overrideOff := journalReportDayType(calendar, teacher, date, overrideByDate)
-		note := "Hari non-kerja — tidak presensi"
-		switch {
-		case optional:
-			note = "Hari kerja opsional — tidak presensi"
-		case overrideOff:
-			note = "Libur khusus (override admin)"
-		case calendar.holidays[dateString].Nama != "" && !calendar.holidays[dateString].IsWorkday:
-			note = fmt.Sprintf("%s — tidak presensi", calendar.holidays[dateString].Nama)
-		case date.Weekday() == time.Saturday || date.Weekday() == time.Sunday:
-			note = "Akhir pekan — tidak presensi"
+		if !teacher.CreatedAt.IsZero() && date.Before(dateOnly(teacher.CreatedAt.In(date.Location()))) {
+			continue
 		}
-		byDate[dateString] = journalReportVirtualRow(dateString, "libur", note)
+		dateString := date.Format("2006-01-02")
+		// Holidays stay hidden even when an administrator marks one as a
+		// working holiday. Optional days and explicit Saturday overrides also
+		// do not appear as scheduled Saturday attendance.
+		if _, holiday := calendar.holidays[dateString]; holiday {
+			continue
+		}
+		isWorkday, optional, overrideOff := journalReportDayType(calendar, teacher, date, overrideByDate)
+		row, hasAttendance := byDate[dateString]
+		if overrideOff || (!isWorkday && !optional) || (optional && !hasAttendance) {
+			continue
+		}
+		if !hasAttendance {
+			// Scheduled Saturday with no attendance is an Alfa day and can be
+			// corrected through a revision request without pre-creating a log.
+			row = journalReportVirtualRow(dateString, "alfa", "Belum ada catatan presensi")
+		}
+		filtered[dateString] = row
 	}
 
 	rows = rows[:0]
-	for _, row := range byDate {
+	for _, row := range filtered {
 		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool {

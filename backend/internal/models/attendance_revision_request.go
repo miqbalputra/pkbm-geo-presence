@@ -5,7 +5,7 @@ import "time"
 type AttendanceRevisionRequest struct {
 	ID                 uint       `gorm:"column:id;primaryKey" json:"id"`
 	UserID             uint       `gorm:"column:user_id;not null;index:idx_attendance_revision_user_created,priority:1" json:"user_id"`
-	AttendanceID       uint       `gorm:"column:attendance_id;not null;index:idx_attendance_revision_attendance_status,priority:1" json:"attendance_id"`
+	AttendanceID       *uint      `gorm:"column:attendance_id;index:idx_attendance_revision_attendance_status,priority:1" json:"attendance_id,omitempty"`
 	Tanggal            time.Time  `gorm:"column:tanggal;type:date;not null" json:"tanggal"`
 	OriginalStatus     string     `gorm:"column:original_status;size:30;not null" json:"original_status"`
 	OriginalJamMasuk   *string    `gorm:"column:original_jam_masuk;type:time" json:"original_jam_masuk,omitempty"`

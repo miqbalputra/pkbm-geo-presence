@@ -21,6 +21,7 @@ var (
 	errRevisionNoChange           = errors.New("usulan revisi sama dengan catatan presensi saat ini")
 	errRevisionAlreadyReviewed    = errors.New("pengajuan revisi sudah diproses")
 	errRevisionStale              = errors.New("catatan presensi sudah berubah setelah pengajuan dibuat")
+	errRevisionDateChanged        = errors.New("tanggal presensi sudah memiliki catatan atau bukan hari kerja")
 	errRevisionPokjarStatus       = errors.New("Pokjar hanya menggunakan status Hadir, Izin, atau Sakit tanpa jam pulang")
 )
 
@@ -91,7 +92,7 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 		return fiber.ErrForbidden
 	}
 	var teacher models.User
-	if err := h.db.Select("id", "pokjar").Where("id = ? AND role = ?", claims.UserID, "guru").First(&teacher).Error; err != nil {
+	if err := h.db.Select("id", "pokjar", "created_at").Where("id = ? AND role = ?", claims.UserID, "guru").First(&teacher).Error; err != nil {
 		return err
 	}
 	isPokjar := teacher.Pokjar != nil && strings.TrimSpace(*teacher.Pokjar) != ""
@@ -99,9 +100,31 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 	if err != nil {
 		return invalid(c, err.Error())
 	}
-	attendanceID, err := uintValue(body, "attendance_id", "attendanceId")
+	attendanceID, hasAttendanceID, err := optionalRevisionAttendanceID(body)
 	if err != nil {
-		return invalid(c, "Catatan presensi harus dipilih")
+		return invalid(c, "Catatan presensi tidak valid")
+	}
+	var requestedDate time.Time
+	if !hasAttendanceID {
+		requestedDate, err = parseDate(stringValue(body, "tanggal", "date"), appLocation(h))
+		if err != nil {
+			return invalid(c, "Tanggal presensi harus diisi")
+		}
+		requestedDate = dateOnly(requestedDate)
+		if requestedDate.Weekday() != time.Saturday || !requestedDate.Before(dateOnly(time.Now().In(appLocation(h)))) {
+			return invalid(c, "Revisi Alfa hanya dapat diajukan untuk hari Sabtu yang sudah berlalu")
+		}
+		calendar, err := h.loadWorkdayCalendar(requestedDate, requestedDate)
+		if err != nil {
+			return err
+		}
+		if _, isHoliday := calendar.holidays[requestedDate.Format("2006-01-02")]; isHoliday {
+			return invalid(c, "Tanggal libur tidak dapat diajukan sebagai revisi Alfa")
+		}
+		isWorkday, optional := calendar.isWorkday(teacher, requestedDate)
+		if !isWorkday || optional {
+			return invalid(c, "Tanggal tersebut bukan hari kerja presensi")
+		}
 	}
 	reason := stringValue(body, "alasan", "reason")
 	if len([]rune(reason)) < 5 || len([]rune(reason)) > 1000 {
@@ -139,34 +162,77 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 	var created models.AttendanceRevisionRequest
 	err = h.db.Transaction(func(tx *gorm.DB) error {
 		var attendance models.AttendanceLog
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", attendanceID, claims.UserID).First(&attendance).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errRevisionAttendanceNotFound
+		if hasAttendanceID {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", attendanceID, claims.UserID).First(&attendance).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return errRevisionAttendanceNotFound
+				}
+				return err
 			}
-			return err
+			requestedDate = dateOnly(attendance.Tanggal)
+		} else {
+			// Lock the teacher row to serialize concurrent requests for the same
+			// currently-missing date. The attendance table has no row to lock yet.
+			var lockedTeacher models.User
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&lockedTeacher, claims.UserID).Error; err != nil {
+				return err
+			}
+			calendar, err := loadWorkdayCalendarFromDB(tx, requestedDate, requestedDate)
+			if err != nil {
+				return err
+			}
+			if _, holiday := calendar.holidays[requestedDate.Format("2006-01-02")]; holiday {
+				return errRevisionDateChanged
+			}
+			isWorkday, optional := calendar.isWorkday(teacher, requestedDate)
+			if !isWorkday || optional {
+				return errRevisionDateChanged
+			}
+			var existingCount int64
+			if err := tx.Model(&models.AttendanceLog{}).Where("user_id = ? AND tanggal = ?", claims.UserID, requestedDate.Format("2006-01-02")).Count(&existingCount).Error; err != nil {
+				return err
+			}
+			if existingCount > 0 {
+				return errRevisionDateChanged
+			}
 		}
 		var pendingCount int64
-		if err := tx.Model(&models.AttendanceRevisionRequest{}).
-			Where("attendance_id = ? AND user_id = ? AND status = ?", attendance.ID, claims.UserID, "pending").
-			Count(&pendingCount).Error; err != nil {
+		pendingQuery := tx.Model(&models.AttendanceRevisionRequest{}).Where("user_id = ? AND tanggal = ? AND status = ?", claims.UserID, requestedDate.Format("2006-01-02"), "pending")
+		if hasAttendanceID {
+			pendingQuery = pendingQuery.Where("attendance_id = ?", attendance.ID)
+		} else {
+			pendingQuery = pendingQuery.Where("attendance_id IS NULL")
+		}
+		if err := pendingQuery.Count(&pendingCount).Error; err != nil {
 			return err
 		}
 		if pendingCount > 0 {
 			return errRevisionPendingExists
 		}
-		if attendance.Status == status && equalRevisionTime(attendance.JamMasuk, jamMasuk) &&
+		if hasAttendanceID && attendance.Status == status && equalRevisionTime(attendance.JamMasuk, jamMasuk) &&
 			equalRevisionTime(attendance.JamPulang, jamPulang) && equalRevisionText(attendance.Keterangan, proposedNote) {
 			return errRevisionNoChange
 		}
+		originalStatus := "alfa"
+		var attendanceIDPointer *uint
+		var originalJamMasuk, originalJamHadir, originalJamPulang, originalKeterangan *string
+		if hasAttendanceID {
+			originalStatus = attendance.Status
+			attendanceIDPointer = uintPointer(attendance.ID)
+			originalJamMasuk = attendance.JamMasuk
+			originalJamHadir = attendance.JamHadir
+			originalJamPulang = attendance.JamPulang
+			originalKeterangan = attendance.Keterangan
+		}
 		created = models.AttendanceRevisionRequest{
-			UserID:             attendance.UserID,
-			AttendanceID:       attendance.ID,
-			Tanggal:            dateOnly(attendance.Tanggal),
-			OriginalStatus:     attendance.Status,
-			OriginalJamMasuk:   attendance.JamMasuk,
-			OriginalJamHadir:   attendance.JamHadir,
-			OriginalJamPulang:  attendance.JamPulang,
-			OriginalKeterangan: attendance.Keterangan,
+			UserID:             claims.UserID,
+			AttendanceID:       attendanceIDPointer,
+			Tanggal:            requestedDate,
+			OriginalStatus:     originalStatus,
+			OriginalJamMasuk:   originalJamMasuk,
+			OriginalJamHadir:   originalJamHadir,
+			OriginalJamPulang:  originalJamPulang,
+			OriginalKeterangan: originalKeterangan,
 			ProposedStatus:     status,
 			ProposedJamMasuk:   jamMasuk,
 			ProposedJamPulang:  jamPulang,
@@ -182,6 +248,8 @@ func (h *Handler) createAttendanceRevisionRequest(c *fiber.Ctx) error {
 		return httpx.Error(c, fiber.StatusNotFound, "ATTENDANCE_NOT_FOUND", "Catatan presensi tidak ditemukan")
 	case errors.Is(err, errRevisionPendingExists):
 		return httpx.Error(c, fiber.StatusConflict, "REVISION_ALREADY_PENDING", "Masih ada pengajuan revisi yang menunggu untuk tanggal ini")
+	case errors.Is(err, errRevisionDateChanged):
+		return httpx.Error(c, fiber.StatusConflict, "ATTENDANCE_ALREADY_EXISTS", "Tanggal ini bukan lagi Sabtu kerja atau catatan presensinya sudah tersedia. Muat ulang daftar revisi.")
 	case errors.Is(err, errRevisionNoChange):
 		return invalid(c, "Usulan revisi sama dengan catatan presensi saat ini")
 	case err != nil:
@@ -240,7 +308,7 @@ func (h *Handler) reviewAttendanceRevisionRequest(c *fiber.Ctx, approve bool) er
 			return errRevisionAlreadyReviewed
 		}
 		var teacher models.User
-		if err := tx.Select("id", "role", "pokjar").First(&teacher, reviewed.UserID).Error; err != nil {
+		if err := tx.Select("id", "role", "pokjar", "nama").First(&teacher, reviewed.UserID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return errRevisionStale
 			}
@@ -256,39 +324,83 @@ func (h *Handler) reviewAttendanceRevisionRequest(c *fiber.Ctx, approve bool) er
 				return errRevisionPokjarStatus
 			}
 			var attendance models.AttendanceLog
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&attendance, reviewed.AttendanceID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
+			if reviewed.AttendanceID != nil {
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&attendance, *reviewed.AttendanceID).Error; err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						return errRevisionStale
+					}
+					return err
+				}
+				if attendance.UserID != reviewed.UserID || !dateOnly(attendance.Tanggal).Equal(dateOnly(reviewed.Tanggal)) ||
+					attendance.Status != reviewed.OriginalStatus ||
+					!equalRevisionTime(attendance.JamMasuk, reviewed.OriginalJamMasuk) ||
+					!equalRevisionTime(attendance.JamHadir, reviewed.OriginalJamHadir) ||
+					!equalRevisionTime(attendance.JamPulang, reviewed.OriginalJamPulang) ||
+					!equalRevisionText(attendance.Keterangan, stringValueFromPointer(reviewed.OriginalKeterangan)) {
 					return errRevisionStale
 				}
-				return err
-			}
-			if attendance.UserID != reviewed.UserID || !dateOnly(attendance.Tanggal).Equal(dateOnly(reviewed.Tanggal)) ||
-				attendance.Status != reviewed.OriginalStatus ||
-				!equalRevisionTime(attendance.JamMasuk, reviewed.OriginalJamMasuk) ||
-				!equalRevisionTime(attendance.JamHadir, reviewed.OriginalJamHadir) ||
-				!equalRevisionTime(attendance.JamPulang, reviewed.OriginalJamPulang) ||
-				!equalRevisionText(attendance.Keterangan, stringValueFromPointer(reviewed.OriginalKeterangan)) {
-				return errRevisionStale
-			}
-			updates := map[string]any{
-				"status":     reviewed.ProposedStatus,
-				"keterangan": reviewed.ProposedKeterangan,
-			}
-			if isPresentRevisionStatus(reviewed.ProposedStatus) {
-				updates["jam_masuk"] = reviewed.ProposedJamMasuk
-				updates["jam_hadir"] = reviewed.ProposedJamMasuk
-				if isPokjar {
-					updates["jam_pulang"] = nil
+				updates := map[string]any{
+					"status":     reviewed.ProposedStatus,
+					"keterangan": reviewed.ProposedKeterangan,
+				}
+				if isPresentRevisionStatus(reviewed.ProposedStatus) {
+					updates["jam_masuk"] = reviewed.ProposedJamMasuk
+					updates["jam_hadir"] = reviewed.ProposedJamMasuk
+					if isPokjar {
+						updates["jam_pulang"] = nil
+					} else {
+						updates["jam_pulang"] = reviewed.ProposedJamPulang
+					}
 				} else {
-					updates["jam_pulang"] = reviewed.ProposedJamPulang
+					updates["jam_masuk"] = nil
+					updates["jam_hadir"] = nil
+					updates["jam_pulang"] = nil
+				}
+				if err := tx.Model(&attendance).Updates(updates).Error; err != nil {
+					return err
 				}
 			} else {
-				updates["jam_masuk"] = nil
-				updates["jam_hadir"] = nil
-				updates["jam_pulang"] = nil
+				date := dateOnly(reviewed.Tanggal.In(appLocation(h)))
+				if date.Weekday() != time.Saturday || !date.Before(dateOnly(now)) {
+					return errRevisionStale
+				}
+				calendar, err := loadWorkdayCalendarFromDB(tx, date, date)
+				if err != nil {
+					return err
+				}
+				if _, holiday := calendar.holidays[date.Format("2006-01-02")]; holiday {
+					return errRevisionStale
+				}
+				isWorkday, optional := calendar.isWorkday(teacher, date)
+				if !isWorkday || optional {
+					return errRevisionStale
+				}
+				var existingCount int64
+				if err := tx.Model(&models.AttendanceLog{}).Where("user_id = ? AND tanggal = ?", reviewed.UserID, date.Format("2006-01-02")).Count(&existingCount).Error; err != nil {
+					return err
+				}
+				if existingCount > 0 {
+					return errRevisionStale
+				}
+				attendance = models.AttendanceLog{
+					UserID: reviewed.UserID, Nama: teacher.Nama, Tanggal: date,
+					Status: reviewed.ProposedStatus, Keterangan: reviewed.ProposedKeterangan,
+					Metode: "manual",
+				}
+				if isPresentRevisionStatus(reviewed.ProposedStatus) {
+					attendance.JamMasuk = reviewed.ProposedJamMasuk
+					attendance.JamHadir = reviewed.ProposedJamMasuk
+					if !isPokjar {
+						attendance.JamPulang = reviewed.ProposedJamPulang
+					}
+				}
+				if err := tx.Create(&attendance).Error; err != nil {
+					return err
+				}
+				reviewed.AttendanceID = uintPointer(attendance.ID)
 			}
-			if err := tx.Model(&attendance).Updates(updates).Error; err != nil {
-				return err
+			if reviewed.AttendanceID == nil {
+				return errRevisionStale
 			}
 			eventReason := truncateRevisionText(fmt.Sprintf("Revisi presensi #%d disetujui admin. Alasan guru: %s", reviewed.ID, reviewed.Alasan), 500)
 			attendanceID := attendance.ID
@@ -312,10 +424,11 @@ func (h *Handler) reviewAttendanceRevisionRequest(c *fiber.Ctx, approve bool) er
 			status = "approved"
 		}
 		if err := tx.Model(&reviewed).Updates(map[string]any{
-			"status":      status,
-			"admin_note":  pointerString(adminNote),
-			"reviewed_by": claims.UserID,
-			"reviewed_at": now,
+			"status":        status,
+			"admin_note":    pointerString(adminNote),
+			"reviewed_by":   claims.UserID,
+			"reviewed_at":   now,
+			"attendance_id": reviewed.AttendanceID,
 		}).Error; err != nil {
 			return err
 		}
@@ -391,6 +504,18 @@ func proposedRevisionTime(value, label string) (*string, error) {
 		return nil, fmt.Errorf("Format %s tidak valid", strings.ToLower(label))
 	}
 	return pointerString(normalizeTime(value)), nil
+}
+
+func optionalRevisionAttendanceID(body map[string]any) (uint, bool, error) {
+	for _, key := range []string{"attendance_id", "attendanceId"} {
+		value, exists := body[key]
+		if !exists || value == nil || strings.TrimSpace(fmt.Sprint(value)) == "" {
+			continue
+		}
+		id, err := parseUint(fmt.Sprint(value))
+		return id, true, err
+	}
+	return 0, false, nil
 }
 
 func isPresentRevisionStatus(status string) bool {

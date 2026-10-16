@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS `attendance_revision_requests` (
   `id` int NOT NULL AUTO_INCREMENT,
   `user_id` int NOT NULL,
-  `attendance_id` int NOT NULL,
+  `attendance_id` int DEFAULT NULL,
   `tanggal` date NOT NULL,
   `original_status` varchar(30) NOT NULL,
   `original_jam_masuk` time DEFAULT NULL,

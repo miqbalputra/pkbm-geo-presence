@@ -553,10 +553,15 @@ func (h *Handler) updateAttendance(c *fiber.Ctx, claims *auth.Claims, body map[s
 			return httpx.Error(c, fiber.StatusConflict, "CHECKOUT_TOO_EARLY", fmt.Sprintf("Presensi pulang belum dapat dilakukan sebelum pukul %s WIB", label))
 		}
 		serverTime := now.Format("15:04:05")
-		note := stringValue(body, "keterangan")
+		checkoutNote := strings.TrimSpace(stringValue(body, "keterangan"))
 		if isPiket && izinPulangAwal {
-			note = addPiketEarlyCheckoutNote(note)
+			checkoutNote = addPiketEarlyCheckoutNote(checkoutNote)
 		}
+		existingNote := ""
+		if record.Keterangan != nil {
+			existingNote = *record.Keterangan
+		}
+		note := mergeAttendanceNotes(existingNote, checkoutNote)
 		accuracy, hasAccuracy := floatValue(body, "accuracy", "accuracy_meters")
 		verdict := "outside"
 		if inside {
@@ -568,8 +573,6 @@ func (h *Handler) updateAttendance(c *fiber.Ctx, claims *auth.Claims, body map[s
 		checkoutDistance := int(distance + 0.5)
 		updates := map[string]any{
 			"jam_pulang":                serverTime,
-			"latitude":                  lat,
-			"longitude":                 lon,
 			"lokasi_pulang":             location,
 			"keterangan":                note,
 			"checkout_latitude":         lat,
@@ -577,6 +580,9 @@ func (h *Handler) updateAttendance(c *fiber.Ctx, claims *auth.Claims, body map[s
 			"checkout_accuracy_meters":  pointerFloat(accuracy, hasAccuracy),
 			"checkout_distance_meters":  checkoutDistance,
 			"checkout_location_verdict": verdict,
+		}
+		if body != nil {
+			body["keterangan"] = checkoutNote
 		}
 		result := h.db.Model(&models.AttendanceLog{}).
 			Where("id = ? AND (jam_pulang IS NULL OR jam_pulang = '')", record.ID).
@@ -588,8 +594,6 @@ func (h *Handler) updateAttendance(c *fiber.Ctx, claims *auth.Claims, body map[s
 			return httpx.Error(c, fiber.StatusConflict, "ATTENDANCE_COMPLETED", "Presensi pulang hari ini sudah tercatat")
 		}
 		record.JamPulang = pointerString(serverTime)
-		record.Latitude = pointerFloat(lat, true)
-		record.Longitude = pointerFloat(lon, true)
 		record.CheckoutLatitude = pointerFloat(lat, true)
 		record.CheckoutLongitude = pointerFloat(lon, true)
 		record.CheckoutAccuracyMeters = pointerFloat(accuracy, hasAccuracy)

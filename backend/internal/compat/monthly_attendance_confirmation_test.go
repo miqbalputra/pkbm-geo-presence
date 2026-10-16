@@ -186,8 +186,8 @@ func TestMonthlyConfirmationReminderKeepsAttendanceAvailableAndTracksFollowUp(t 
 	if !payload.Success || !payload.Data.Required || !payload.Data.NeedsConfirmation || payload.Data.IsOverdue || payload.Data.DeadlineAt != "2026-10-02T09:00:00+07:00" || payload.Data.Period.StartDate != "2026-09-01" || payload.Data.Period.EndDate != "2026-09-30" {
 		t.Fatalf("unexpected confirmation payload: %+v", payload.Data)
 	}
-	if len(payload.Data.Rows) != 30 {
-		t.Fatalf("rows = %d, want a complete September calendar of 30 dates", len(payload.Data.Rows))
+	if len(payload.Data.Rows) != 4 {
+		t.Fatalf("rows = %d, want only the four scheduled Saturdays in September", len(payload.Data.Rows))
 	}
 
 	manualRequest := httptest.NewRequest(http.MethodPost, "/api/v1/attendance", strings.NewReader(`{"status":"izin"}`))

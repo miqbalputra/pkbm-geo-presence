@@ -40,30 +40,34 @@ type workdayCalendar struct {
 // reports into three bounded queries. The old implementation performed one
 // holiday and one optional-workday query for every user/day combination.
 func (h *Handler) loadWorkdayCalendar(start, end time.Time) (workdayCalendar, error) {
+	return loadWorkdayCalendarFromDB(h.db, start, end)
+}
+
+func loadWorkdayCalendarFromDB(db *gorm.DB, start, end time.Time) (workdayCalendar, error) {
 	calendar := workdayCalendar{holidays: map[string]models.Holiday{}, optional: map[string]struct{}{}, overrides: map[string]models.WeekendOverride{}}
 	var holidays []models.Holiday
 	endExclusive := end.AddDate(0, 0, 1).Format("2006-01-02")
-	if err := h.db.Where("tanggal >= ? AND tanggal < ?", start.Format("2006-01-02"), endExclusive).Find(&holidays).Error; err != nil {
+	if err := db.Where("tanggal >= ? AND tanggal < ?", start.Format("2006-01-02"), endExclusive).Find(&holidays).Error; err != nil {
 		return calendar, err
 	}
 	for _, holiday := range holidays {
 		calendar.holidays[holiday.Tanggal.Format("2006-01-02")] = holiday
 	}
 	var optional []models.OptionalWorkday
-	if err := h.db.Where("tanggal >= ? AND tanggal < ?", start.Format("2006-01-02"), endExclusive).Find(&optional).Error; err != nil {
+	if err := db.Where("tanggal >= ? AND tanggal < ?", start.Format("2006-01-02"), endExclusive).Find(&optional).Error; err != nil {
 		return calendar, err
 	}
 	for _, row := range optional {
 		calendar.optional[row.Tanggal.Format("2006-01-02")] = struct{}{}
 	}
 	var overrides []models.WeekendOverride
-	if err := h.db.Where("tanggal >= ? AND tanggal < ?", start.Format("2006-01-02"), endExclusive).Find(&overrides).Error; err != nil {
+	if err := db.Where("tanggal >= ? AND tanggal < ?", start.Format("2006-01-02"), endExclusive).Find(&overrides).Error; err != nil {
 		return calendar, err
 	}
 	for _, row := range overrides {
 		calendar.overrides[workdayOverrideKey(row.UserID, row.Tanggal)] = row
 	}
-	settings, err := settingsMap(h.db)
+	settings, err := settingsMap(db)
 	if err != nil {
 		return calendar, err
 	}

@@ -608,21 +608,10 @@ function GuruHome({ user, onChangeTab, gmailComplete = false }) {
       if (result.feedback) setAttendanceFeedback(result.feedback)
     } catch (error) {
       // Jika gagal mendapatkan lokasi
-      if (TESTING_MODE) {
-        // Testing mode: gunakan koordinat sekolah
-        const result = await saveAttendance('hadir', '', {
-          latitude: parseFloat(settings.sekolah_latitude),
-          longitude: parseFloat(settings.sekolah_longitude),
-          accuracy: 0
-        })
-        if (result.feedback) setAttendanceFeedback(result.feedback)
-      } else {
-        // Produksi: tampilkan error
-        setMessage({
-          type: 'error',
-          text: getLocationErrorMessage(error)
-        })
-      }
+      setMessage({
+        type: 'error',
+        text: getLocationErrorMessage(error)
+      })
     } finally {
       finishAttendanceAction()
     }

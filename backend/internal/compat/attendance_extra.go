@@ -198,14 +198,22 @@ func (h *Handler) qrScan(c *fiber.Ctx) error {
 		if settings["mode_testing"] == "1" {
 			verdict = "testing"
 		}
-		updates := map[string]any{"jam_pulang": serverTime, "latitude": lat, "longitude": lon, "lokasi_pulang": "luar", "qr_nonce": nonce,
+		updates := map[string]any{"jam_pulang": serverTime, "lokasi_pulang": "luar", "qr_nonce": nonce,
 			"checkout_latitude": lat, "checkout_longitude": lon, "checkout_accuracy_meters": pointerFloat(accuracy, hasAccuracy), "checkout_location_verdict": verdict}
 		if inside || settings["mode_testing"] == "1" {
 			updates["lokasi_pulang"] = "sekolah"
 		}
-		note := stringValue(body, "keterangan")
+		checkoutNote := strings.TrimSpace(stringValue(body, "keterangan"))
 		if isPiket && izinPulangAwal {
-			note = addPiketEarlyCheckoutNote(note)
+			checkoutNote = addPiketEarlyCheckoutNote(checkoutNote)
+		}
+		existingNote := ""
+		if attendance.Keterangan != nil {
+			existingNote = *attendance.Keterangan
+		}
+		note := mergeAttendanceNotes(existingNote, checkoutNote)
+		if body != nil {
+			body["keterangan"] = checkoutNote
 		}
 		if note != "" {
 			updates["keterangan"] = note
@@ -220,8 +228,6 @@ func (h *Handler) qrScan(c *fiber.Ctx) error {
 			return httpx.Error(c, fiber.StatusConflict, "ATTENDANCE_COMPLETED", "Presensi hari ini sudah selesai")
 		}
 		attendance.JamPulang = pointerString(serverTime)
-		attendance.Latitude = pointerFloat(lat, true)
-		attendance.Longitude = pointerFloat(lon, true)
 		attendance.CheckoutLatitude = pointerFloat(lat, true)
 		attendance.CheckoutLongitude = pointerFloat(lon, true)
 		attendance.CheckoutAccuracyMeters = pointerFloat(accuracy, hasAccuracy)

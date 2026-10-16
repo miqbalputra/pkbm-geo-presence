@@ -19,7 +19,7 @@ type AttendanceRow = {
 
 type RevisionRequest = {
   id: number
-  attendance_id: number
+  attendance_id?: number | null
   tanggal: string
   original_status: string
   original_jam_masuk?: string | null
@@ -74,6 +74,7 @@ function requestStatus(status: RevisionRequest['status']) {
 
 const emptyForm = {
   attendanceId: '',
+  tanggal: '',
   status: 'hadir',
   jamMasuk: '',
   jamPulang: '',
@@ -81,9 +82,9 @@ const emptyForm = {
   alasan: '',
 }
 
-export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: string | null } }) {
+export default function GuruAttendanceRevisions({ user, requestDate, onRequestDateHandled }: { user?: { pokjar?: string | null }; requestDate?: string | null; onRequestDateHandled?: () => void }) {
   const isPokjar = Boolean(String(user?.pokjar || '').trim())
-  const availableStatuses = isPokjar ? statuses.filter((status) => ['hadir', 'izin', 'sakit'].includes(status.value)) : statuses
+  const availableStatuses = useMemo(() => isPokjar ? statuses.filter((status) => ['hadir', 'izin', 'sakit'].includes(status.value)) : statuses, [isPokjar])
   const [records, setRecords] = useState<AttendanceRow[]>([])
   const [requests, setRequests] = useState<RevisionRequest[]>([])
   const [loading, setLoading] = useState(true)
@@ -118,9 +119,17 @@ export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: st
     [records, form.attendanceId],
   )
   const pendingAttendanceIds = useMemo(
-    () => new Set(requests.filter((request) => request.status === 'pending').map((request) => request.attendance_id)),
+    () => new Set(requests.filter((request) => request.status === 'pending' && request.attendance_id != null).map((request) => request.attendance_id as number)),
     [requests],
   )
+  const pendingDates = useMemo(
+    () => new Set(requests.filter((request) => request.status === 'pending').map((request) => request.tanggal)),
+    [requests],
+  )
+  const pendingForSelectedDate = form.attendanceId
+    ? pendingAttendanceIds.has(Number(form.attendanceId))
+    : Boolean(form.tanggal && pendingDates.has(form.tanggal))
+  const isMissingAttendanceRequest = !form.attendanceId && Boolean(form.tanggal)
   const availableRecords = useMemo(
     () => records.filter((record) => !pendingAttendanceIds.has(record.id)),
     [records, pendingAttendanceIds],
@@ -132,6 +141,7 @@ export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: st
     setForm({
       ...emptyForm,
       attendanceId: String(firstAvailable.id),
+      tanggal: firstAvailable.tanggal,
       status: availableStatuses.some((item) => item.value === firstAvailable.status) ? firstAvailable.status : 'hadir',
       jamMasuk: timeValue(firstAvailable.jam_masuk || firstAvailable.jam_hadir),
       jamPulang: timeValue(firstAvailable.jam_pulang),
@@ -148,6 +158,7 @@ export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: st
     setForm((current) => ({
       ...current,
       attendanceId,
+      tanggal: record.tanggal,
       status: availableStatuses.some((item) => item.value === record.status) ? record.status : 'hadir',
       jamMasuk: timeValue(record.jam_masuk || record.jam_hadir),
       jamPulang: timeValue(record.jam_pulang),
@@ -155,15 +166,37 @@ export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: st
     }))
   }
 
+  useEffect(() => {
+    if (loading || error || !requestDate) return
+    const record = records.find((item) => item.tanggal.slice(0, 10) === requestDate)
+    if (record) {
+      setForm({
+        ...emptyForm,
+        attendanceId: String(record.id),
+        tanggal: record.tanggal.slice(0, 10),
+        status: availableStatuses.some((item) => item.value === record.status) ? record.status : 'hadir',
+        jamMasuk: timeValue(record.jam_masuk || record.jam_hadir),
+        jamPulang: timeValue(record.jam_pulang),
+        keterangan: record.keterangan || '',
+      })
+    } else {
+      setForm({ ...emptyForm, tanggal: requestDate })
+    }
+    setDialogError('')
+    setSuccess('')
+    setDialogOpen(true)
+    onRequestDateHandled?.()
+  }, [requestDate, loading, error, records, availableStatuses, onRequestDateHandled])
+
   const submitRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!selectedAttendance || saving) return
+    if ((!selectedAttendance && !isMissingAttendanceRequest) || saving) return
     setSaving(true)
     setDialogError('')
     setSuccess('')
     try {
       const response = await attendanceRevisionAPI.create({
-        attendance_id: Number(form.attendanceId),
+        ...(form.attendanceId ? { attendance_id: Number(form.attendanceId) } : { tanggal: form.tanggal }),
         proposed_status: form.status,
         proposed_jam_masuk: presentStatuses.has(form.status) ? form.jamMasuk : '',
         proposed_jam_pulang: presentStatuses.has(form.status) && !isPokjar ? form.jamPulang : '',
@@ -215,18 +248,20 @@ export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: st
           </article>
         })}</div> : <EmptyState title="Belum ada pengajuan revisi" description="Jika ada catatan presensi yang keliru, ajukan dari tombol di atas." />}
       </Card>
-      {records.length === 0 && <EmptyState title="Belum ada catatan presensi" description="Pengajuan revisi dapat dibuat setelah ada catatan presensi pada riwayat Anda." />}
+      {records.length === 0 && <EmptyState title="Belum ada catatan presensi" description="Tanggal Alfa pada Sabtu kerja juga dapat diajukan melalui daftar konfirmasi rekap bulanan." />}
     </>}
 
-    <AppDialog open={dialogOpen} onOpenChange={setDialogOpen} busy={saving} title="Ajukan revisi presensi" description="Pilih catatan dan isi nilai yang benar. Catatan resmi tidak berubah sebelum admin menyetujui." className="max-w-2xl">
+    <AppDialog open={dialogOpen} onOpenChange={setDialogOpen} busy={saving} title="Ajukan revisi presensi" description="Pilih catatan atau koreksi tanggal Alfa. Data resmi hanya berubah setelah disetujui admin." className="max-w-2xl">
       <form onSubmit={submitRequest} className="space-y-4">
         {dialogError && <Notice tone="error">{dialogError}</Notice>}
-        <label className="grid gap-1.5 text-sm font-medium">Catatan presensi
+        {isMissingAttendanceRequest ? <div className="grid gap-1.5 text-sm font-medium">Tanggal presensi<div className="rounded-lg border border-border bg-muted/40 px-3 py-3">{dateLabel(form.tanggal)}</div></div> : <label className="grid gap-1.5 text-sm font-medium">Catatan presensi
           <select className="academy-input min-h-11 px-3" value={form.attendanceId} onChange={(event) => selectAttendance(event.target.value)} required>
             {records.map((record) => <option key={record.id} value={record.id} disabled={pendingAttendanceIds.has(record.id)}>{dateLabel(record.tanggal)} · {statusLabel(record.status)}{pendingAttendanceIds.has(record.id) ? ' · menunggu admin' : ''}</option>)}
           </select>
-        </label>
+        </label>}
         {selectedAttendance && <p className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground"><Clock3 className="h-4 w-4 shrink-0" aria-hidden="true" />Saat ini: {statusLabel(selectedAttendance.status)}, masuk {displayTime(selectedAttendance.jam_masuk || selectedAttendance.jam_hadir)}{isPokjar ? ' · tanpa jam pulang' : ` · pulang ${displayTime(selectedAttendance.jam_pulang)}`}</p>}
+        {isMissingAttendanceRequest && <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-200"><Clock3 className="h-4 w-4 shrink-0" aria-hidden="true" />Belum ada catatan presensi pada tanggal ini (Alfa). Admin akan memeriksa lalu membuat catatan jika menyetujui.</p>}
+        {pendingForSelectedDate && <Notice tone="warning">Sudah ada pengajuan revisi untuk tanggal ini yang menunggu persetujuan admin.</Notice>}
         <label className="grid gap-1.5 text-sm font-medium">Status yang diusulkan
           <select className="academy-input min-h-11 px-3" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value, ...(presentStatuses.has(event.target.value) ? {} : { jamMasuk: '', jamPulang: '' }) }))}>
             {availableStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
@@ -238,7 +273,7 @@ export default function GuruAttendanceRevisions({ user }: { user?: { pokjar?: st
         </div>}
         <label className="grid gap-1.5 text-sm font-medium">Keterangan presensi yang benar<textarea className="academy-input min-h-24 resize-y px-3 py-2" value={form.keterangan} onChange={(event) => setForm((current) => ({ ...current, keterangan: event.target.value }))} maxLength={2000} /></label>
         <label className="grid gap-1.5 text-sm font-medium">Alasan revisi<textarea className="academy-input min-h-24 resize-y px-3 py-2" value={form.alasan} onChange={(event) => setForm((current) => ({ ...current, alasan: event.target.value }))} minLength={5} maxLength={1000} required placeholder="Jelaskan mengapa catatan ini perlu diperbaiki." /></label>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>Batal</Button><Button type="submit" disabled={saving || !selectedAttendance || pendingAttendanceIds.has(selectedAttendance.id)}>{saving ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <ClipboardCheck aria-hidden="true" />}{saving ? 'Mengirim...' : 'Kirim pengajuan'}</Button></div>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>Batal</Button><Button type="submit" disabled={saving || (!selectedAttendance && !isMissingAttendanceRequest) || pendingForSelectedDate}>{saving ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <ClipboardCheck aria-hidden="true" />}{saving ? 'Mengirim...' : 'Kirim pengajuan'}</Button></div>
       </form>
     </AppDialog>
   </div>

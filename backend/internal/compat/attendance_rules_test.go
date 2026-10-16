@@ -50,13 +50,25 @@ func TestLateMinutesForAttendanceUsesEffectivePiketTarget(t *testing.T) {
 	}
 }
 
-func TestClassifyCheckInKeepsLegacyPartTimeException(t *testing.T) {
+func TestClassifyCheckInRecordsLatenessForPartTimeNonPokjar(t *testing.T) {
 	user := models.User{TipeGuru: "partime"}
 	checkedInAt := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.FixedZone("WIB", 7*60*60))
 
 	status, note := classifyCheckIn(user, checkedInAt, "07:20", "", "15", "")
-	if status != "hadir" || note != "Guru Partime" {
-		t.Fatalf("part-time result = (%q, %q), want (hadir, Guru Partime)", status, note)
+	if status != "hadir_terlambat" || note != "Terlambat 40 menit (Parah)" {
+		t.Fatalf("part-time result = (%q, %q), want (hadir_terlambat, Terlambat 40 menit (Parah))", status, note)
+	}
+}
+
+func TestMergeAttendanceNotesPreservesCheckInExplanationAtCheckout(t *testing.T) {
+	checkInNote := "Terlambat 4 menit"
+	if got := mergeAttendanceNotes(checkInNote, ""); got != checkInNote {
+		t.Fatalf("empty checkout note replaced check-in note: got %q, want %q", got, checkInNote)
+	}
+	checkoutNote := "Izin Pulang Awal Piket"
+	want := checkInNote + " | " + checkoutNote
+	if got := mergeAttendanceNotes(checkInNote, checkoutNote); got != want {
+		t.Fatalf("merged note = %q, want %q", got, want)
 	}
 }
 

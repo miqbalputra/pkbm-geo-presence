@@ -154,11 +154,11 @@ function GuruModal({ guru, onClose, onSave }) {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             >
               <option value="full_time">Full Time (Hadir setiap hari kerja)</option>
-              <option value="partime">Partime (Scan = Hadir, tanpa status terlambat)</option>
+              <option value="partime">Partime (GPS dan perhitungan terlambat seperti non-Pokjar)</option>
             </select>
             {formData.tipeGuru === 'partime' && (
               <p className="mt-1 text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg">
-                ⚡ Guru partime hanya perlu scan 1x. Langsung tercatat <strong>Hadir</strong> tanpa cek jam.
+                ⚡ Guru partime tetap memakai GPS untuk presensi hadir dan pulang; status terlambat mengikuti jam masuk dan jadwal piket.
               </p>
             )}
           </div>

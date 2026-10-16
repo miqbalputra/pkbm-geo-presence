@@ -64,14 +64,7 @@ func (h *Handler) checkInTarget(userID uint, date time.Time, settings map[string
 	return target, label, nil
 }
 
-func classifyCheckIn(user models.User, checkedInAt time.Time, target, targetLabel, toleranceValue, note string) (string, string) {
-	if strings.EqualFold(strings.TrimSpace(user.TipeGuru), "partime") {
-		if strings.TrimSpace(note) == "" {
-			note = "Guru Partime"
-		}
-		return "hadir", note
-	}
-
+func classifyCheckIn(_ models.User, checkedInAt time.Time, target, targetLabel, toleranceValue, note string) (string, string) {
 	targetMinutes, validTarget := timeToMinutes(target)
 	if !validTarget {
 		targetMinutes, _ = timeToMinutes("07:20")
@@ -133,7 +126,7 @@ func (h *Handler) lateMinutesForAttendance(user models.User, attendance models.A
 // intentionally read-only: administrators' historical/manual corrections stay
 // untouched, while teacher-facing views still show the rule that applies now.
 func (h *Handler) derivedAttendanceStatus(user models.User, attendance models.AttendanceLog, date time.Time, settings map[string]string) (string, error) {
-	if attendance.Status != "hadir" || strings.EqualFold(strings.TrimSpace(user.TipeGuru), "partime") {
+	if attendance.Status != "hadir" {
 		return attendance.Status, nil
 	}
 
@@ -225,6 +218,18 @@ func addPiketEarlyCheckoutNote(note string) string {
 		return "(" + marker + ")"
 	}
 	return strings.TrimSpace(note) + " (" + marker + ")"
+}
+
+func mergeAttendanceNotes(existing, additional string) string {
+	existing = strings.TrimSpace(existing)
+	additional = strings.TrimSpace(additional)
+	if additional == "" {
+		return existing
+	}
+	if existing == "" || existing == additional {
+		return additional
+	}
+	return existing + " | " + additional
 }
 
 func settingTime(value, fallback string) string {

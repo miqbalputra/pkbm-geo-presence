@@ -9,6 +9,7 @@ import { EmptyState, Notice, PageHeader, PageLoading } from '../ui/page'
 type RevisionRequest = {
   id: number
   user_id: number
+  attendance_id?: number | null
   nama_guru?: string
   is_pokjar?: boolean
   tanggal: string
@@ -31,6 +32,7 @@ const labels: Record<string, string> = {
   hadir: 'Hadir',
   hadir_terlambat: 'Hadir terlambat',
   hadir_izin_terlambat: 'Hadir, izin terlambat',
+  alfa: 'Alfa',
   izin: 'Izin',
   sakit: 'Sakit',
 }
@@ -121,7 +123,7 @@ export default function AttendanceRevisionRequests() {
     {loading ? <PageLoading /> : requests.length ? <div className="space-y-4">{requests.map((request) => <Card key={request.id} className="gap-4 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-semibold">{request.nama_guru || 'Guru'} · {dateLabel(request.tanggal)}</h2><p className="mt-1 text-xs text-muted-foreground">Diajukan {new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' }).format(new Date(request.created_at))}{request.is_pokjar ? ' · Pokjar, tanpa presensi pulang' : ''}</p></div>{statusBadge(request.status)}</div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <section className="rounded-lg border border-border bg-muted/40 p-3"><h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Catatan saat ini</h3><p className="mt-2 text-sm font-semibold">{labels[request.original_status] || request.original_status}</p><p className="mt-1 text-sm tabular-nums">Masuk {timeLabel(request.original_jam_masuk || request.original_jam_hadir)}{request.is_pokjar ? ' · tanpa jam pulang' : ` · Pulang ${timeLabel(request.original_jam_pulang)}`}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.original_keterangan || 'Tanpa keterangan'}</p></section>
+        <section className="rounded-lg border border-border bg-muted/40 p-3"><h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Catatan saat ini</h3><p className="mt-2 text-sm font-semibold">{labels[request.original_status] || request.original_status}{request.attendance_id == null ? ' · belum ada catatan' : ''}</p><p className="mt-1 text-sm tabular-nums">Masuk {timeLabel(request.original_jam_masuk || request.original_jam_hadir)}{request.is_pokjar ? ' · tanpa jam pulang' : ` · Pulang ${timeLabel(request.original_jam_pulang)}`}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.original_keterangan || 'Tanpa keterangan'}</p></section>
         <section className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-900 dark:bg-blue-950/20"><h3 className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Usulan guru</h3><p className="mt-2 text-sm font-semibold">{labels[request.proposed_status] || request.proposed_status}</p><p className="mt-1 text-sm tabular-nums">Masuk {timeLabel(request.proposed_jam_masuk)}{request.is_pokjar ? ' · tanpa jam pulang' : ` · Pulang ${timeLabel(request.proposed_jam_pulang)}`}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.proposed_keterangan || 'Tanpa keterangan'}</p></section>
       </div>
       <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs font-semibold text-muted-foreground">Alasan guru</p><p className="mt-1 whitespace-pre-wrap text-sm">{request.alasan}</p></div>
