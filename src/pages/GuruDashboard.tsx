@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, Suspense, lazy } from 'react'
 import {
   BarChart3,
   CalendarDays,
+  ClipboardCheck,
   ChevronLeft,
   ChevronRight,
   History,
@@ -25,6 +26,7 @@ const GuruRiwayat = lazy(() => import('../components/guru/GuruRiwayat'))
 const GuruStatus = lazy(() => import('../components/guru/GuruStatus'))
 const GuruPeringkat = lazy(() => import('../components/guru/GuruPeringkat'))
 const GuruStatistik = lazy(() => import('../components/guru/GuruStatistik'))
+const GuruAttendanceRevisions = lazy(() => import('../components/guru/GuruAttendanceRevisions'))
 
 function TabLoading() {
   return (
@@ -58,6 +60,7 @@ function GuruDashboard({ user, onLogout, installBanner }) {
   const tabs = [
     { id: 'home', label: 'Beranda', icon: Home },
     { id: 'riwayat', label: 'Riwayat', icon: History },
+    { id: 'revisi', label: 'Revisi Presensi', icon: ClipboardCheck },
     { id: 'status', label: 'Rekan', icon: Users },
     { id: 'peringkat', label: 'Peringkat', icon: Trophy },
     { id: 'statistik', label: 'Statistik', icon: BarChart3 },
@@ -74,7 +77,7 @@ function GuruDashboard({ user, onLogout, installBanner }) {
   }).format(new Date())
 
   useEffect(() => {
-    if (!['home', 'riwayat', 'status', 'peringkat', 'statistik', 'akun'].includes(activeTab)) navigate('/guru', { replace: true })
+    if (!['home', 'riwayat', 'revisi', 'status', 'peringkat', 'statistik', 'akun'].includes(activeTab)) navigate('/guru', { replace: true })
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [activeTab, navigate])
 
@@ -138,11 +141,11 @@ function GuruDashboard({ user, onLogout, installBanner }) {
           <div className="space-y-6">
             <div>
               <p className={`mb-2 px-3 text-xs font-bold uppercase tracking-normal text-slate-500 ${!sidebarOpen ? 'sr-only' : ''}`}>Presensi</p>
-              <div className="space-y-1">{tabs.slice(0, 5).map(renderNavItem)}</div>
+              <div className="space-y-1">{tabs.slice(0, 6).map(renderNavItem)}</div>
             </div>
             <div>
               <p className={`mb-2 px-3 text-xs font-bold uppercase tracking-normal text-slate-500 ${!sidebarOpen ? 'sr-only' : ''}`}>Akun</p>
-              <div className="space-y-1">{tabs.slice(5).map(renderNavItem)}</div>
+              <div className="space-y-1">{tabs.slice(6).map(renderNavItem)}</div>
             </div>
           </div>
           {!sidebarOpen && (
@@ -197,6 +200,7 @@ function GuruDashboard({ user, onLogout, installBanner }) {
             {activeTab !== 'home' && activeTab !== 'akun' && (
               <Suspense fallback={<TabLoading />}>
                 {activeTab === 'riwayat' && <GuruRiwayat user={user} />}
+                {activeTab === 'revisi' && <GuruAttendanceRevisions />}
                 {activeTab === 'status' && <GuruStatus />}
                 {activeTab === 'peringkat' && <GuruPeringkat user={user} />}
                 {activeTab === 'statistik' && <GuruStatistik user={user} />}
@@ -207,13 +211,13 @@ function GuruDashboard({ user, onLogout, installBanner }) {
 
         <nav aria-label="Navigasi dashboard guru" className="fixed bottom-0 left-0 right-0 z-50 lg:hidden">
           <div className="border-t border-slate-200 bg-white px-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 dark:border-slate-800 dark:bg-slate-950">
-            <div className="mx-auto grid max-w-md grid-cols-6 gap-0.5">
+            <div className="mx-auto grid max-w-md grid-cols-7 gap-0.5">
               {tabs.map((tab) => {
                 const isActive = activeTab === tab.id
                 return (
                   <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)} aria-current={isActive ? 'page' : undefined} className={`flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-0 py-1 text-[10px] font-semibold leading-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:text-xs ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300'}`}>
                     <span className={`flex h-7 w-7 items-center justify-center rounded-lg ${isActive ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400' : ''}`}><tab.icon className="h-4 w-4" aria-hidden="true" /></span>
-                    <span className="max-w-full truncate text-center">{tab.id === 'akun' ? 'Akun' : tab.label}</span>
+                    <span className="max-w-full truncate text-center">{tab.id === 'revisi' ? 'Revisi' : tab.label}</span>
                   </button>
                 )
               })}

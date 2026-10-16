@@ -285,6 +285,30 @@ export const presensiAPI = {
   },
 }
 
+// Pengajuan revisi presensi. Pengajuan guru disimpan terpisah dari catatan
+// resmi; admin menerapkan perubahan hanya setelah menyetujuinya.
+export const attendanceRevisionAPI = {
+  getAll: async (filters: Record<string, string> = {}) => {
+    const params = new URLSearchParams(filters)
+    return fetchAPI(`/v1/attendance-revision-requests?${params}`, { method: 'GET' })
+  },
+
+  create: async (data) => fetchAPI('/v1/attendance-revision-requests', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  approve: async (id, adminNote = '') => fetchAPI(`/v1/attendance-revision-requests/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ admin_note: adminNote }),
+  }),
+
+  reject: async (id, adminNote) => fetchAPI(`/v1/attendance-revision-requests/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ admin_note: adminNote }),
+  }),
+}
+
 // Activity Logs API
 export const activityAPI = {
   create: async (activityData) => {

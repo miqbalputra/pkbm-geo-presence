@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { NavLink, useLocation } from '../../router'
-import { Activity, Archive, ArchiveRestore, BarChart3, Bot, Calendar, CalendarCheck, CalendarPlus, CalendarX, ChevronDown, Download, Edit, LayoutDashboard, LogOut, Map, MapPin, PanelLeftClose, PanelLeftOpen, QrCode, School, Settings, UserPlus, Users, X, RotateCw } from 'lucide-react'
+import { attendanceRevisionAPI } from '../../services/api'
+import { Activity, Archive, ArchiveRestore, BarChart3, Bot, Calendar, CalendarCheck, CalendarPlus, CalendarX, ChevronDown, ClipboardCheck, Download, Edit, LayoutDashboard, LogOut, Map, MapPin, PanelLeftClose, PanelLeftOpen, QrCode, School, Settings, UserPlus, Users, X, RotateCw } from 'lucide-react'
 
 const groups = [
   { label: 'Utama', items: [
@@ -12,6 +13,7 @@ const groups = [
   ] },
   { label: 'Presensi', items: [
     { path: '/admin/edit-presensi', icon: Edit, label: 'Koreksi Presensi' },
+    { path: '/admin/revisi-presensi', icon: ClipboardCheck, label: 'Pengajuan Revisi' },
     { path: '/admin/manual-entry', icon: UserPlus, label: 'Presensi Manual' },
     { path: '/admin/qr-code', icon: QrCode, label: 'QR Code' },
   ] },
@@ -39,6 +41,26 @@ const groups = [
 export default function Sidebar({ user, onLogout, isOpen, setIsOpen, collapsed, onToggleCollapse }) {
   const { pathname } = useLocation()
   const [expanded, setExpanded] = useState(['Utama', 'Presensi'])
+  const [pendingRevisionCount, setPendingRevisionCount] = useState(0)
+
+  useEffect(() => {
+    let mounted = true
+    const refreshPendingRevisions = async () => {
+      try {
+        const response = await attendanceRevisionAPI.getAll({ status: 'pending' })
+        if (mounted) setPendingRevisionCount(Array.isArray(response.data) ? response.data.length : 0)
+      } catch {
+        // Keep the last known count if the request cannot be refreshed.
+      }
+    }
+    void refreshPendingRevisions()
+    const timer = window.setInterval(refreshPendingRevisions, 60_000)
+    return () => {
+      mounted = false
+      window.clearInterval(timer)
+    }
+  }, [])
+
   useEffect(() => {
     const current = groups.find((group) => group.items.some((item) => item.path === pathname))
     if (current) setExpanded((previous) => previous.includes(current.label) ? previous : [...previous, current.label])
@@ -60,9 +82,14 @@ export default function Sidebar({ user, onLogout, isOpen, setIsOpen, collapsed, 
         return <div key={group.label}>
           {!compact && <button type="button" className="flex min-h-11 w-full items-center justify-between px-3 text-xs font-semibold text-muted-foreground" aria-expanded={open} aria-controls={id} onClick={() => setExpanded((previous) => open ? previous.filter((label) => label !== group.label) : [...previous, group.label])}>{group.label}<ChevronDown className={`h-4 w-4 transition-transform ${open ? '' : '-rotate-90'}`} aria-hidden="true" /></button>}
           <div id={id} hidden={!compact && !open} className="space-y-1">
-            {group.items.map((item) => <NavLink key={item.path} to={item.path} end={item.path === '/admin'} title={compact ? item.label : undefined} aria-label={compact ? item.label : undefined} className={({ isActive }) => `sidebar-link ${compact ? 'justify-center px-0' : ''} ${isActive ? 'is-active' : ''}`}>
-              <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" /><span className={compact ? 'sr-only' : 'truncate'}>{item.label}</span>
-            </NavLink>)}
+            {group.items.map((item) => {
+              const showRevisionCount = item.path === '/admin/revisi-presensi' && pendingRevisionCount > 0
+              const compactTitle = showRevisionCount ? `${item.label} (${pendingRevisionCount} menunggu)` : item.label
+              return <NavLink key={item.path} to={item.path} end={item.path === '/admin'} title={compact ? compactTitle : undefined} aria-label={compact ? compactTitle : undefined} className={({ isActive }) => `sidebar-link ${compact ? 'justify-center px-0' : ''} ${isActive ? 'is-active' : ''}`}>
+                <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" /><span className={compact ? 'sr-only' : 'truncate'}>{item.label}</span>
+                {!compact && showRevisionCount && <span className="ml-auto min-w-5 rounded-full bg-amber-100 px-1.5 text-center text-[10px] font-bold leading-5 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">{pendingRevisionCount > 99 ? '99+' : pendingRevisionCount}</span>}
+              </NavLink>
+            })}
           </div>
         </div>
       })}

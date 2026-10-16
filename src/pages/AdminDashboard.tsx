@@ -25,6 +25,7 @@ const OverrideWeekend = lazy(() => import('../components/admin/OverrideWeekend')
 const OptionalWorkdays = lazy(() => import('../components/admin/OptionalWorkdays'))
 const AIAgent = lazy(() => import('../components/admin/AIAgent'))
 const BackupPemulihan = lazy(() => import('../components/admin/BackupPemulihan'))
+const AttendanceRevisionRequests = lazy(() => import('../components/admin/AttendanceRevisionRequests'))
 
 function SectionLoading() {
   return (
@@ -54,6 +55,7 @@ function AdminDashboard({ user, onLogout, installBanner }) {
     '/admin/rotasi-piket': 'Rotasi Piket Sabtu',
     '/admin/laporan-pokjar': 'Laporan Pokjar',
     '/admin/edit-presensi': 'Koreksi Presensi',
+    '/admin/revisi-presensi': 'Pengajuan Revisi',
     '/admin/download-laporan': 'Laporan',
     '/admin/hari-libur': 'Hari Libur',
     '/admin/log-aktivitas': 'Log Aktivitas',
@@ -143,6 +145,7 @@ function AdminDashboard({ user, onLogout, installBanner }) {
                 <Route path="/rotasi-piket" element={<RotasiPiket />} />
                 <Route path="/laporan-pokjar" element={<LaporanPokjar />} />
                 <Route path="/edit-presensi" element={<EditPresensi user={user} />} />
+                <Route path="/revisi-presensi" element={<AttendanceRevisionRequests />} />
                 <Route path="/download-laporan" element={<DownloadLaporan />} />
                 <Route path="/hari-libur" element={<HariLibur user={user} />} />
                 <Route path="/log-aktivitas" element={<LogAktivitas />} />
