@@ -40,9 +40,7 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 		}
 		db, err = gorm.Open(sqlite.Open(cfg.DBPath), gormConfig)
 	} else {
-		dsnConfig := sqldriver.Config{User: cfg.DBUser, Passwd: cfg.DBPass, Net: "tcp", Addr: cfg.DBHost + ":" + cfg.DBPort, DBName: cfg.DBName, Params: map[string]string{"charset": "utf8mb4"}, ParseTime: true, Loc: location, Timeout: cfg.DBConnectTimeout, ReadTimeout: cfg.DBReadTimeout, WriteTimeout: cfg.DBWriteTimeout}
-		dsn := dsnConfig.FormatDSN()
-		db, err = gorm.Open(mysql.Open(dsn), gormConfig)
+		db, err = gorm.Open(mysql.Open(mysqlDSN(cfg, location)), gormConfig)
 	}
 	if err != nil {
 		return nil, err
@@ -72,6 +70,24 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
 	sqlDB.SetConnMaxIdleTime(cfg.DBConnMaxIdleTime)
 	return db, nil
+}
+
+func mysqlDSN(cfg config.Config, location *time.Location) string {
+	// Start with the driver's defaults: a zero-value Config disables
+	// mysql_native_password, which MariaDB deployments may still require.
+	dsnConfig := sqldriver.NewConfig()
+	dsnConfig.User = cfg.DBUser
+	dsnConfig.Passwd = cfg.DBPass
+	dsnConfig.Net = "tcp"
+	dsnConfig.Addr = cfg.DBHost + ":" + cfg.DBPort
+	dsnConfig.DBName = cfg.DBName
+	dsnConfig.Params = map[string]string{"charset": "utf8mb4"}
+	dsnConfig.ParseTime = true
+	dsnConfig.Loc = location
+	dsnConfig.Timeout = cfg.DBConnectTimeout
+	dsnConfig.ReadTimeout = cfg.DBReadTimeout
+	dsnConfig.WriteTimeout = cfg.DBWriteTimeout
+	return dsnConfig.FormatDSN()
 }
 
 func newLogger(appEnv string) logger.Interface {
