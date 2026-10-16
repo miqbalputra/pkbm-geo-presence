@@ -173,7 +173,18 @@ func seedSQLiteAdmin(db *gorm.DB) error {
 }
 
 func splitStatements(content string) []string {
-	parts := strings.Split(content, ";")
+	// Strip full-line SQL comments before splitting. A semicolon inside a
+	// comment is documentation, not a statement boundary.
+	var uncommented strings.Builder
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "--") {
+			continue
+		}
+		uncommented.WriteString(line)
+		uncommented.WriteByte('\n')
+	}
+
+	parts := strings.Split(uncommented.String(), ";")
 	statements := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if statement := strings.TrimSpace(part); statement != "" {
