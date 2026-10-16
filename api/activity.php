@@ -8,6 +8,9 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // GET ALL ACTIVITY LOGS
 if ($method === 'GET') {
+    if (($_SESSION['role'] ?? '') !== 'admin') {
+        sendResponse(false, 'Forbidden: Hanya admin yang dapat melihat log aktivitas');
+    }
     try {
         $stmt = $pdo->query("SELECT id, user, aktivitas, status, waktu FROM activity_logs ORDER BY waktu DESC LIMIT 500");
         $logs = $stmt->fetchAll();

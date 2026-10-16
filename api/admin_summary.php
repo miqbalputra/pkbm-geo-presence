@@ -50,17 +50,18 @@ try {
         sendResponse(false, 'Invalid period');
     }
 
-    $guruStmt = $pdo->prepare("SELECT id, jenis_kelamin FROM users WHERE role = 'guru' AND archived_at IS NULL");
+    $guruStmt = $pdo->prepare("SELECT id, jenis_kelamin, created_at FROM users WHERE role = 'guru' AND archived_at IS NULL");
     $guruStmt->execute();
     $guruRows = $guruStmt->fetchAll();
     $totalGuru = count($guruRows);
 
-    $workdayDates = getWorkdayDates($pdo, $startDate, $endDate);
+    $calendarSnapshot = gpw_create_calendar_snapshot($pdo, $startDate, $endDate, $guruRows);
+    $workdayDates = gpw_get_workdays_from_snapshot($calendarSnapshot);
     $totalHariAktif = count($workdayDates);
     $workdayMapByUser = [];
     $totalExpected = 0;
     foreach ($guruRows as $guru) {
-        $userWorkdays = getWorkdayDates($pdo, $startDate, $endDate, $guru['jenis_kelamin'], (int)$guru['id']);
+        $userWorkdays = gpw_get_workdays_from_snapshot($calendarSnapshot, $guru);
         $workdayMapByUser[(int)$guru['id']] = array_flip($userWorkdays);
         $totalExpected += count($userWorkdays);
     }
@@ -121,7 +122,7 @@ try {
     unset($log);
 
     $missingStmt = $pdo->prepare("
-        SELECT u.id, u.nama, u.jabatan, u.jenis_kelamin
+        SELECT u.id, u.nama, u.jabatan, u.jenis_kelamin, u.created_at
         FROM users u
         LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.tanggal = ?
         WHERE u.role = 'guru'
@@ -130,8 +131,11 @@ try {
         ORDER BY u.nama ASC
     ");
     $missingStmt->execute([$today]);
-    $missingGuru = array_values(array_filter($missingStmt->fetchAll(), function ($guru) use ($pdo, $today) {
-        return in_array($today, getWorkdayDates($pdo, $today, $today, $guru['jenis_kelamin'], (int)$guru['id']), true);
+    $todaySnapshot = $today === $startDate && $today === $endDate
+        ? $calendarSnapshot
+        : gpw_create_calendar_snapshot($pdo, $today, $today, $guruRows);
+    $missingGuru = array_values(array_filter($missingStmt->fetchAll(), function ($guru) use ($todaySnapshot, $today) {
+        return in_array($today, gpw_get_workdays_from_snapshot($todaySnapshot, $guru), true);
     }));
 
     foreach ($missingGuru as &$guru) {

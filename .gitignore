@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+vendor/
+.phpunit.result.cache
 .pnp
 .pnp.js
 
@@ -82,6 +84,7 @@ api/reset_password.php
 UPLOAD_ME/
 staging/
 temp_zip_content/
+deploy/staging.env
 
 # Data import guru (PII: nama/alamat/No HP/tgl lahir/password) — JANGAN commit
 /data_guru_pkbm.xlsx

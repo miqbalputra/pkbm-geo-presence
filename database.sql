@@ -73,6 +73,12 @@ CREATE TABLE IF NOT EXISTS `attendance_logs` (
   `keterangan` text,
   `latitude` decimal(10,8) DEFAULT NULL,
   `longitude` decimal(11,8) DEFAULT NULL,
+  `checkin_accuracy_meters` decimal(8,2) DEFAULT NULL,
+  `checkout_latitude` decimal(10,8) DEFAULT NULL,
+  `checkout_longitude` decimal(11,8) DEFAULT NULL,
+  `checkout_accuracy_meters` decimal(8,2) DEFAULT NULL,
+  `checkout_distance_meters` int DEFAULT NULL,
+  `checkout_location_verdict` enum('inside','outside','testing') DEFAULT NULL,
   `metode` enum('button','qr_scan','manual') DEFAULT 'button',
   `lokasi_pulang` varchar(16) DEFAULT NULL COMMENT 'sekolah|luar — lokasi saat presensi pulang',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -83,6 +89,7 @@ CREATE TABLE IF NOT EXISTS `attendance_logs` (
   KEY `tanggal` (`tanggal`),
   KEY `idx_attendance_tanggal_id` (`tanggal`,`id`),
   KEY `idx_attendance_tanggal_status` (`tanggal`,`status`),
+  KEY `idx_attendance_date_user_status` (`tanggal`,`user_id`,`status`),
   CONSTRAINT `attendance_logs_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -232,6 +239,35 @@ CREATE TABLE IF NOT EXISTS `webhook_logs` (
   KEY `idx_webhook_logs_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------
+-- Event audit presensi. attendance_logs tetap menjadi ringkasan harian;
+-- tabel ini tidak pernah diubah setelah event tercatat.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `attendance_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `attendance_id` int DEFAULT NULL,
+  `user_id` int NOT NULL,
+  `event_type` enum('check_in','check_out','izin','sakit','admin_adjustment') NOT NULL,
+  `method` enum('button','qr_scan','manual') NOT NULL DEFAULT 'button',
+  `request_id` char(36) DEFAULT NULL,
+  `latitude` decimal(10,8) DEFAULT NULL,
+  `longitude` decimal(11,8) DEFAULT NULL,
+  `accuracy_meters` decimal(8,2) DEFAULT NULL,
+  `distance_meters` int DEFAULT NULL,
+  `location_verdict` enum('inside','outside','not_required','testing') NOT NULL DEFAULT 'not_required',
+  `reason` varchar(500) DEFAULT NULL,
+  `actor_user_id` int DEFAULT NULL,
+  `occurred_at` datetime NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_attendance_events_request` (`user_id`,`request_id`),
+  KEY `idx_attendance_events_attendance` (`attendance_id`,`id`),
+  KEY `idx_attendance_events_user_time` (`user_id`,`occurred_at`),
+  CONSTRAINT `fk_attendance_events_attendance` FOREIGN KEY (`attendance_id`) REFERENCES `attendance_logs` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_attendance_events_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_attendance_events_actor` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- =====================================================================
 -- SEED DATA
 -- =====================================================================
@@ -300,3 +336,253 @@ ON DUPLICATE KEY UPDATE `setting_value` = VALUES(`setting_value`);
 INSERT INTO `webhook_config` (`enabled`, `n8n_webhook_url`, `admin_phone`) VALUES (0, NULL, NULL);
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- Go stack migrations: supplementary tables for auth, security, backup, and monthly confirmation.
+
+-- Source: .\backend\internal\migrations\sql\001_auth_security.sql
+CREATE TABLE IF NOT EXISTS `jwt_refresh_tokens` (
+  `id` varchar(36) NOT NULL,
+  `user_id` int NOT NULL,
+  `token_hash` char(64) NOT NULL,
+  `expires_at` timestamp NOT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `last_used_at` timestamp NULL DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_jwt_refresh_token_hash` (`token_hash`),
+  KEY `idx_jwt_refresh_user` (`user_id`),
+  KEY `idx_jwt_refresh_expiry` (`expires_at`),
+  CONSTRAINT `fk_jwt_refresh_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `security_events` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `event` varchar(100) NOT NULL,
+  `user_id` int DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
+  `request_id` varchar(100) DEFAULT NULL,
+  `details` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_security_event` (`event`, `created_at`),
+  KEY `idx_security_user` (`user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Source: .\backend\internal\migrations\sql\002_operations.sql
+CREATE TABLE IF NOT EXISTS `optional_workdays` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `tanggal` date NOT NULL,
+  `nama` varchar(255) NOT NULL,
+  `keterangan` text,
+  `created_by` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_optional_workday_date` (`tanggal`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `user_weekend_overrides` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `tanggal` date NOT NULL,
+  `is_workday` tinyint(1) NOT NULL DEFAULT 1,
+  `keterangan` varchar(255) DEFAULT NULL,
+  `created_by` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_weekend_override_user_date` (`user_id`, `tanggal`),
+  KEY `idx_weekend_override_date` (`tanggal`),
+  CONSTRAINT `fk_weekend_override_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `pengaturan_harian` (
+  `tanggal` date NOT NULL,
+  `jam_pulang_khusus` time DEFAULT NULL,
+  `jam_pulang_khusus_aktif` tinyint(1) NOT NULL DEFAULT 0,
+  `jam_pulang_piket_khusus` time DEFAULT NULL,
+  `jam_pulang_piket_khusus_aktif` tinyint(1) NOT NULL DEFAULT 0,
+  `keterangan` varchar(255) DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `updated_by` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`tanggal`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `location_tracks` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `attendance_id` int DEFAULT NULL,
+  `tanggal` date NOT NULL,
+  `latitude` decimal(10,8) NOT NULL,
+  `longitude` decimal(11,8) NOT NULL,
+  `accuracy_meters` decimal(8,2) DEFAULT NULL,
+  `source` varchar(30) NOT NULL DEFAULT 'web',
+  `user_agent` varchar(255) DEFAULT NULL,
+  `recorded_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_location_user_date` (`user_id`, `tanggal`, `recorded_at`),
+  KEY `idx_location_date` (`tanggal`, `recorded_at`),
+  CONSTRAINT `fk_location_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Source: .\backend\internal\migrations\sql\003_webhooks.sql
+CREATE TABLE IF NOT EXISTS `webhook_config` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `n8n_webhook_url` varchar(500) NOT NULL DEFAULT '',
+  `admin_phone` varchar(20) NOT NULL DEFAULT '',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `webhook_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `reminder_type` varchar(30) NOT NULL,
+  `total_guru` int NOT NULL DEFAULT 0,
+  `status` varchar(20) NOT NULL,
+  `response` text,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_webhook_log_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Source: .\backend\internal\migrations\sql\004_qr_hardening.sql
+-- QR nonce compatibility is applied by ensureLegacyUserColumns after the
+-- versioned migrations. MySQL 8.4 does not support IF NOT EXISTS for
+-- ALTER TABLE ... ADD COLUMN, and the compatibility path must also handle
+-- legacy databases where this column may already exist.
+SELECT 1;
+
+-- Source: .\backend\internal\migrations\sql\005_backups.sql
+CREATE TABLE IF NOT EXISTS `backup_jobs` (
+  `id` CHAR(36) NOT NULL,
+  `kind` VARCHAR(16) NOT NULL,
+  `status` VARCHAR(16) NOT NULL DEFAULT 'queued',
+  `source` VARCHAR(16) NOT NULL DEFAULT 'admin',
+  `requested_by` BIGINT UNSIGNED NULL,
+  `idempotency_key` VARCHAR(255) NULL,
+  `file_name` VARCHAR(255) NULL,
+  `file_path` VARCHAR(1024) NULL,
+  `file_size` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `sha256` CHAR(64) NULL,
+  `manifest_json` JSON NULL,
+  `error_code` VARCHAR(80) NULL,
+  `error_message` TEXT NULL,
+  `requested_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `started_at` TIMESTAMP NULL,
+  `finished_at` TIMESTAMP NULL,
+  `expires_at` TIMESTAMP NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_backup_idempotency` (`idempotency_key`),
+  KEY `idx_backup_status_requested` (`status`, `requested_at`),
+  KEY `idx_backup_expires` (`expires_at`),
+  CONSTRAINT `chk_backup_kind` CHECK (`kind` IN ('sql', 'full')),
+  CONSTRAINT `chk_backup_status` CHECK (`status` IN ('queued', 'running', 'succeeded', 'failed', 'expired'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `backup_restore_jobs` (
+  `id` CHAR(36) NOT NULL,
+  `backup_job_id` CHAR(36) NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'queued',
+  `requested_by` BIGINT UNSIGNED NOT NULL,
+  `pre_restore_backup_id` CHAR(36) NULL,
+  `confirmation_phrase` VARCHAR(255) NOT NULL,
+  `error_code` VARCHAR(80) NULL,
+  `error_message` TEXT NULL,
+  `started_at` TIMESTAMP NULL,
+  `finished_at` TIMESTAMP NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_restore_status_created` (`status`, `created_at`),
+  KEY `idx_restore_backup` (`backup_job_id`),
+  CONSTRAINT `chk_restore_status` CHECK (`status` IN ('queued', 'preparing', 'running', 'succeeded', 'failed'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `maintenance_state` (
+  `id` TINYINT UNSIGNED NOT NULL,
+  `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `reason` VARCHAR(255) NOT NULL DEFAULT '',
+  `restore_job_id` CHAR(36) NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO `maintenance_state` (`id`, `enabled`, `reason`)
+VALUES (1, 0, '')
+ON DUPLICATE KEY UPDATE `id` = `id`;
+
+CREATE TABLE IF NOT EXISTS `backup_uploads` (
+  `id` CHAR(36) NOT NULL,
+  `file_name` VARCHAR(255) NOT NULL,
+  `file_path` VARCHAR(1024) NOT NULL,
+  `expected_size` BIGINT UNSIGNED NOT NULL,
+  `received_size` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `expected_sha256` CHAR(64) NULL,
+  `status` VARCHAR(16) NOT NULL DEFAULT 'uploading',
+  `requested_by` BIGINT UNSIGNED NOT NULL,
+  `expires_at` TIMESTAMP NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_backup_upload_expires` (`expires_at`),
+  CONSTRAINT `chk_backup_upload_status` CHECK (`status` IN ('uploading', 'completed', 'failed', 'expired'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Source: .\backend\internal\migrations\sql\006_monthly_attendance_confirmations.sql
+CREATE TABLE IF NOT EXISTS `monthly_attendance_confirmations` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `period_start` date NOT NULL,
+  `period_end` date NOT NULL,
+  `status` varchar(32) NOT NULL,
+  `confirmed_at` timestamp NULL DEFAULT NULL,
+  `correction_requested_at` timestamp NULL DEFAULT NULL,
+  `snapshot` longtext DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_monthly_confirmation_user_period` (`user_id`, `period_start`),
+  KEY `idx_monthly_confirmation_period_status` (`period_start`, `status`),
+  CONSTRAINT `fk_monthly_confirmation_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Source: .\backend\internal\migrations\sql\007_monthly_confirmation_admin_actor.sql
+-- Idempotent compatibility step. ensureLegacyUserColumns adds the optional
+-- admin actor column, index, and foreign key only when they are missing.
+SELECT 1;
+
+-- Source: .\backend\internal\migrations\sql\008_pkbm_fields_and_attendance_integrity.sql
+-- PKBM Tunas Ilmu compatibility fields and immutable attendance event ledger.
+-- Existing IDs and rows are preserved; missing columns are added by the
+-- idempotent ensureLegacyUserColumns() step after the numbered migrations.
+CREATE TABLE IF NOT EXISTS `attendance_events` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `attendance_id` INT DEFAULT NULL,
+  `user_id` INT NOT NULL,
+  `event_type` VARCHAR(30) NOT NULL,
+  `method` VARCHAR(30) NOT NULL DEFAULT 'button',
+  `request_id` CHAR(36) DEFAULT NULL,
+  `latitude` DECIMAL(10,8) DEFAULT NULL,
+  `longitude` DECIMAL(11,8) DEFAULT NULL,
+  `accuracy_meters` DECIMAL(8,2) DEFAULT NULL,
+  `distance_meters` INT DEFAULT NULL,
+  `location_verdict` VARCHAR(30) NOT NULL DEFAULT 'not_required',
+  `reason` VARCHAR(500) DEFAULT NULL,
+  `actor_user_id` INT DEFAULT NULL,
+  `occurred_at` DATETIME NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_attendance_events_request` (`user_id`,`request_id`),
+  KEY `idx_attendance_events_attendance` (`attendance_id`,`id`),
+  KEY `idx_attendance_events_user_time` (`user_id`,`occurred_at`),
+  CONSTRAINT `fk_attendance_events_attendance` FOREIGN KEY (`attendance_id`) REFERENCES `attendance_logs` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_attendance_events_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_attendance_events_actor` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,0 +1,48 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:?Set DB_NAME in deploy/staging.env}
+      MYSQL_USER: ${DB_USER:?Set DB_USER in deploy/staging.env}
+      MYSQL_PASSWORD: ${DB_PASS:?Set DB_PASS in deploy/staging.env}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?Set DB_ROOT_PASS in deploy/staging.env}
+      TZ: Asia/Jakarta
+    command: ["--default-time-zone=+07:00", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - migration_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --host=127.0.0.1 --user=root --password=\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./deploy/staging.env
+    environment:
+      APP_ENV: staging
+      APP_PORT: 8080
+      APP_TIMEZONE: Asia/Jakarta
+      DB_DRIVER: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      STATIC_DIR: /app/dist
+      BACKUP_DIR: /var/lib/presensi-pkbm/backups
+      COOKIE_SECURE: "true"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${STAGING_PORT:-8080}:8080"
+    volumes:
+      - migration_backup_data:/var/lib/presensi-pkbm/backups
+
+volumes:
+  migration_mysql_data:
+  migration_backup_data:

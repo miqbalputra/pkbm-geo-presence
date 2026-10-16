@@ -1,14 +1,127 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Keep the app theme toggle in control instead of following the OS theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-sidebar: #101828;
+  --color-surface: #f8fafc;
+  --color-ink: #101828;
+  --color-academy-navy: #0f172a;
+  --color-academy-blue: #2563eb;
+  --color-academy-blue-dark: #1d4ed8;
+  --color-academy-bg: #f8fafc;
+  --color-academy-border: #e2e8f0;
+  --color-academy-muted: #64748b;
+  --radius-panel: 0.75rem;
+}
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #1e293b;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #eff6ff;
+  --accent-foreground: #1d4ed8;
+  --destructive: #e11d48;
+  --border: #e2e8f0;
+  --input: #cbd5e1;
+  --ring: #93c5fd;
+  --chart-1: #2563eb;
+  --chart-2: #10b981;
+  --chart-3: #f59e0b;
+  --chart-4: #f43f5e;
+  --chart-5: #8b5cf6;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #101828;
+  background: #f8fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+:root.dark {
+  --background: #020617;
+  --foreground: #e2e8f0;
+  --card: #0f172a;
+  --card-foreground: #e2e8f0;
+  --popover: #0f172a;
+  --popover-foreground: #e2e8f0;
+  --primary: #60a5fa;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #e2e8f0;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #172554;
+  --accent-foreground: #bfdbfe;
+  --destructive: #fb7185;
+  --border: #1e293b;
+  --input: #334155;
+  --ring: #3b82f6;
+  --chart-1: #60a5fa;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #fb7185;
+  --chart-5: #a78bfa;
+  color: #e2e8f0;
+  background: #020617;
+}
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #f8fafc;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root.dark body {
+  background: #020617;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 @keyframes fadeIn {
@@ -25,3 +138,355 @@ body {
 .animate-fade-in {
   animation: fadeIn 0.3s ease-in-out;
 }
+
+.guru-skip-link {
+  position: fixed;
+  z-index: 100;
+  left: 1rem;
+  top: 1rem;
+  transform: translateY(-200%);
+  border-radius: 0.75rem;
+  background: #4338ca;
+  padding: 0.75rem 1rem;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(67, 56, 202, 0.28);
+  transition: transform 0.2s ease;
+}
+
+.guru-skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+/* Shared surface token for the teacher workspace. */
+.guru-surface {
+  border: 1px solid var(--color-academy-border);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.dark .guru-surface {
+  border-color: rgb(30 41 59);
+  background: rgb(15 23 42);
+  box-shadow: none;
+}
+
+/* Shared Academy workspace primitives. Both dashboards use these tokens so
+   the role-specific screens still feel like one product. */
+.academy-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.academy-panel-header {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.academy-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+}
+
+.academy-input:focus-visible,
+.academy-control:focus-visible {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.14);
+  outline: none;
+}
+
+.academy-control {
+  border-radius: 0.5rem;
+  outline: none;
+}
+
+.academy-dashboard {
+  background: var(--color-academy-bg);
+  color: #0f172a;
+}
+
+.academy-sidebar {
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.dark .academy-dashboard {
+  background: #020617;
+  color: #e2e8f0;
+}
+
+.dark .academy-dashboard header {
+  border-color: #1e293b;
+  background: rgb(15 23 42 / 0.95);
+}
+
+.dark .academy-dashboard main .academy-panel,
+.dark .academy-dashboard main .bg-white {
+  border-color: #1e293b;
+  background: #0f172a;
+  color: #e2e8f0;
+  box-shadow: none;
+}
+
+.dark .academy-dashboard main .bg-slate-50 {
+  background: #111827;
+}
+
+.dark .academy-dashboard .academy-panel-header {
+  border-color: #1e293b;
+}
+
+.dark .academy-dashboard .academy-input {
+  border-color: #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.dark .academy-dashboard .text-gray-900,
+.dark .academy-dashboard .text-gray-800,
+.dark .academy-dashboard .text-gray-700 {
+  color: #e2e8f0;
+}
+
+.dark .academy-dashboard .text-gray-600,
+.dark .academy-dashboard .text-gray-500 {
+  color: #94a3b8;
+}
+
+.dark .academy-dashboard .text-gray-400,
+.dark .academy-dashboard .text-slate-400,
+.dark .academy-dashboard .text-slate-500 {
+  color: #94a3b8;
+}
+
+.dark .academy-dashboard .text-gray-700,
+.dark .academy-dashboard .text-slate-600,
+.dark .academy-dashboard .text-slate-700 {
+  color: #cbd5e1;
+}
+
+.dark .academy-dashboard .text-slate-800,
+.dark .academy-dashboard .text-slate-900 {
+  color: #f1f5f9;
+}
+
+.dark .academy-dashboard .bg-gray-50,
+.dark .academy-dashboard .bg-gray-100,
+.dark .academy-dashboard .bg-slate-50 {
+  background: #111827;
+}
+
+.dark .academy-dashboard .bg-gray-200,
+.dark .academy-dashboard .bg-slate-200 {
+  background: #1e293b;
+}
+
+.dark .academy-dashboard .border-gray-100,
+.dark .academy-dashboard .border-gray-200,
+.dark .academy-dashboard .border-gray-300,
+.dark .academy-dashboard .border-slate-200 {
+  border-color: #334155;
+}
+
+.dark .academy-dashboard .divide-gray-100 > :not(:last-child),
+.dark .academy-dashboard .divide-gray-200 > :not(:last-child) {
+  border-color: #1e293b;
+}
+
+.dark .academy-dashboard main input:not([type='checkbox']):not([type='radio']),
+.dark .academy-dashboard main select,
+.dark .academy-dashboard main textarea {
+  border-color: #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.dark .academy-dashboard main input::placeholder,
+.dark .academy-dashboard main textarea::placeholder {
+  color: #64748b;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .academy-control,
+  .academy-panel,
+  .guru-surface {
+    transition: none !important;
+  }
+}
+
+@media (max-width: 639px) {
+  .guru-records-table,
+  .guru-records-table tbody,
+  .guru-records-table tr,
+  .guru-records-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .guru-records-table thead {
+    position: absolute;
+    overflow: hidden;
+    width: 1px;
+    height: 1px;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .guru-records-table tbody {
+    padding: 0.5rem;
+  }
+
+  .guru-records-table tr {
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+    border: 1px solid rgb(226 232 240 / 0.9);
+    border-radius: 1rem;
+    background: rgb(255 255 255 / 0.72);
+    padding: 0.25rem 0.75rem;
+    box-shadow: 0 4px 14px rgb(15 23 42 / 0.035);
+  }
+
+  .dark .guru-records-table tr {
+    border-color: rgb(51 65 85);
+    background: rgb(15 23 42 / 0.55);
+    box-shadow: none;
+  }
+
+  .guru-records-table td {
+    display: flex;
+    min-height: 2.35rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border: 0;
+    padding: 0.45rem 0;
+    text-align: right;
+    white-space: normal;
+  }
+
+  .guru-records-table td::before {
+    content: attr(data-label);
+    flex: 0 0 5.75rem;
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-align: left;
+    text-transform: none;
+  }
+
+  .dark .guru-records-table td::before {
+    color: #94a3b8;
+  }
+
+  .guru-records-table td:last-child {
+    align-items: flex-start;
+  }
+
+  .guru-records-table td[colspan] {
+    display: block;
+    min-height: 0;
+    padding: 2.5rem 1rem;
+    text-align: center;
+  }
+
+  .guru-records-table td[colspan]::before {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Portal design system. Scoped so the public login page retains its layout. */
+.academy-dashboard { color: var(--foreground); background: var(--background); }
+.academy-dashboard :is(button, a, input, select, textarea):focus-visible,
+.academy-sidebar :is(button, a):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.academy-dashboard button, .academy-sidebar button { cursor: pointer; }
+.academy-dashboard button:disabled { cursor: not-allowed; }
+.academy-dashboard :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select) { min-height: 44px; }
+.academy-dashboard :is(input, select, textarea) { max-width: 100%; }
+.academy-dashboard :is(h1, h2, h3) { letter-spacing: -0.025em; }
+.academy-dashboard main > div > div > :is(h1, h2) { font-size: 1.5rem; font-weight: 600; }
+.academy-dashboard .text-xs { line-height: 1.5; }
+.academy-dashboard .text-gray-400, .academy-dashboard .text-slate-400 { color: var(--muted-foreground); }
+.academy-dashboard main :is(.shadow-lg, .shadow-xl, .shadow-2xl) { box-shadow: 0 1px 3px rgb(15 23 42 / 0.06); }
+.academy-dashboard main :is(.rounded-2xl, .rounded-3xl) { border-radius: 12px; }
+.academy-dashboard main .font-black { font-weight: 650; }
+.academy-dashboard main .uppercase { text-transform: none; letter-spacing: normal; }
+.academy-dashboard main table { font-size: 14px; }
+.academy-dashboard main th { font-size: 12px; font-weight: 600; text-transform: none; }
+.academy-dashboard main td { overflow-wrap: anywhere; }
+.academy-sidebar { background: var(--card); color: var(--foreground); }
+.sidebar-link { display: flex; align-items: center; min-height: 44px; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--muted-foreground); font-size: 14px; font-weight: 500; transition: background 150ms, color 150ms; }
+.sidebar-link:hover { background: var(--muted); color: var(--foreground); }
+.sidebar-link.is-active { background: var(--accent); color: var(--accent-foreground); font-weight: 600; }
+.ui-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 8px; color: var(--muted-foreground); }
+.ui-icon-button:hover { background: var(--muted); color: var(--foreground); }
+.page-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.page-heading h1 { font-size: clamp(22px, 2vw, 28px); font-weight: 650; line-height: 1.25; color: var(--foreground); }
+.page-heading p { margin-top: 6px; font-size: 14px; line-height: 1.5; color: var(--muted-foreground); }
+.section-tabs { display: flex; gap: 4px; max-width: 100%; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.section-tabs button { flex-shrink: 0; padding: 12px 16px; min-height: 44px; border-bottom: 2px solid transparent; font-size: 14px; color: var(--muted-foreground); }
+.section-tabs button[aria-pressed=true] { border-color: var(--primary); color: var(--accent-foreground); font-weight: 600; }
+.ui-notice { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+.ui-notice-error { background: #fff1f2; color: #9f1239; border-color: #fecdd3; }
+.ui-notice-warning { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.ui-notice-success { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+.ui-notice-info { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+.dark .ui-notice-error { background: #4c0519; color: #fecdd3; border-color: #881337; }
+.dark .ui-notice-warning { background: #451a03; color: #fde68a; border-color: #78350f; }
+.dark .ui-notice-success { background: #022c22; color: #a7f3d0; border-color: #065f46; }
+.dark .ui-notice-info { background: #172554; color: #bfdbfe; border-color: #1e3a8a; }
+.attendance-badge { display: inline-flex; align-items: center; gap: 6px; width: fit-content; border-radius: 999px; padding: 4px 10px; font-size: 12px; line-height: 1.5; font-weight: 600; white-space: nowrap; }
+.attendance-badge-success { background: #ecfdf5; color: #065f46; }
+.attendance-badge-warning { background: #fffbeb; color: #92400e; }
+.attendance-badge-info { background: #eff6ff; color: #1e40af; }
+.attendance-badge-error { background: #fff1f2; color: #9f1239; }
+.attendance-badge-neutral { background: var(--muted); color: var(--muted-foreground); }
+.attendance-badge-holiday { background: #f5f3ff; color: #5b21b6; }
+.dark .attendance-badge-success { background: #022c22; color: #a7f3d0; }
+.dark .attendance-badge-warning { background: #451a03; color: #fde68a; }
+.dark .attendance-badge-info { background: #172554; color: #bfdbfe; }
+.dark .attendance-badge-error { background: #4c0519; color: #fecdd3; }
+.dark .attendance-badge-holiday { background: #2e1065; color: #ddd6fe; }
+.ui-dialog-overlay { position: fixed; inset: 0; z-index: 70; background: rgb(15 23 42 / 0.4); }
+.ui-dialog { position: fixed; z-index: 75; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--card); color: var(--foreground); box-shadow: 0 24px 64px rgb(15 23 42 / 0.18); }
+.ui-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ui-dialog :is(input, select, textarea) { background: var(--card); color: var(--foreground); border-color: var(--input); }
+.ui-dialog :is(button, input, select):not([type=checkbox]):not([type=radio]) { min-height: 44px; }
+.ui-dialog :is(.text-slate-800, .text-gray-800) { color: var(--foreground); }
+.ui-dialog :is(.text-slate-500, .text-gray-500) { color: var(--muted-foreground); }
+@media (max-width: 639px) {
+  .ui-dialog { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100dvh - 16px); border-radius: 16px 16px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+  .academy-dashboard main :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }
+  .academy-dashboard main button:not([role=switch]) { min-height: 44px; }
+}
+
+.academy-dashboard main button[data-size="lg"] { min-height: 56px; }
+
+html.dark { color-scheme: dark; }
+html:not(.dark) { color-scheme: light; }
+.academy-dashboard button:disabled { opacity: 0.6; }
+.academy-dashboard summary { min-height: 44px; }

@@ -296,4 +296,62 @@ function gpw_get_workday_dates($pdo, $start, $end, $gender = null, $userId = nul
         'optional_workdays' => $optionalWorkdays,
     ];
 }
+
+/**
+ * Snapshot kalender untuk satu periode laporan. Semua tabel referensi dimuat
+ * sekali sehingga dashboard tidak lagi menjalankan query per guru per tanggal.
+ */
+function gpw_create_calendar_snapshot($pdo, $start, $end, $users = [])
+{
+    $holidayStmt = $pdo->prepare('SELECT tanggal, jenis, is_workday FROM holidays WHERE tanggal BETWEEN ? AND ?');
+    $holidayStmt->execute([$start, $end]);
+    $holidays = [];
+    foreach ($holidayStmt->fetchAll() as $row) $holidays[$row['tanggal']] = $row;
+
+    $optionalStmt = $pdo->prepare('SELECT tanggal, nama, keterangan FROM optional_workdays WHERE tanggal BETWEEN ? AND ?');
+    $optionalStmt->execute([$start, $end]);
+    $optional = [];
+    foreach ($optionalStmt->fetchAll() as $row) $optional[$row['tanggal']] = $row;
+
+    $overrides = [];
+    $ids = array_values(array_unique(array_filter(array_map(fn($u) => (int)($u['id'] ?? 0), $users))));
+    if ($ids) {
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $overrideStmt = $pdo->prepare("SELECT user_id, tanggal, is_workday FROM user_weekend_overrides WHERE user_id IN ({$marks}) AND tanggal BETWEEN ? AND ?");
+        $overrideStmt->execute([...$ids, $start, $end]);
+        foreach ($overrideStmt->fetchAll() as $row) $overrides[(int)$row['user_id']][$row['tanggal']] = (int)$row['is_workday'];
+    }
+
+    return [
+        'dates' => gpw_build_date_range($start, $end),
+        'holidays' => $holidays,
+        'optional_workdays' => $optional,
+        'overrides' => $overrides,
+        'weekend_settings' => gpw_get_weekend_workday_settings($pdo),
+        'workday_days' => gpw_get_workday_days($pdo)
+    ];
+}
+
+function gpw_get_workdays_from_snapshot($snapshot, $user = [])
+{
+    $userId = (int)($user['id'] ?? 0);
+    $gender = $user['jenis_kelamin'] ?? null;
+    $createdAt = !empty($user['created_at']) ? substr($user['created_at'], 0, 10) : null;
+    $workdays = [];
+    foreach ($snapshot['dates'] as $date) {
+        $holiday = $snapshot['holidays'][$date] ?? null;
+        $dayOfWeek = (int)date('w', strtotime($date));
+        $isWeekend = in_array($dayOfWeek, [0, 6], true);
+        $override = $snapshot['overrides'][$userId][$date] ?? null;
+        if ($isWeekend && $override !== null) {
+            $isWorkday = $override === 1;
+        } else {
+            $isWorkday = gpw_is_special_workday($holiday)
+                || (!$holiday && gpw_is_regular_workday_dow($dayOfWeek, $snapshot['workday_days']));
+        }
+        if ($isWorkday && $createdAt !== null && $date < $createdAt) $isWorkday = false;
+        if ($isWorkday) $workdays[] = $date;
+    }
+    return $workdays;
+}
 ?>

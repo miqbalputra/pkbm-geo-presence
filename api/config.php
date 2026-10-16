@@ -54,6 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
+// Semua perubahan yang memakai sesi browser harus membawa token CSRF. Endpoint
+// login/restore belum memiliki sesi terautentikasi sehingga dikecualikan secara
+// alami; endpoint API-key (n8n/Hermes) juga tidak memiliki user session.
+$unsafeMethod = in_array($_SERVER['REQUEST_METHOD'], ['POST', 'PUT', 'PATCH', 'DELETE'], true);
+if ($unsafeMethod && isset($_SESSION['user_id'])) {
+    verifyCSRFToken($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+}
+
 // Database Connection
 try {
     $pdo = new PDO(

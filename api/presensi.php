@@ -29,21 +29,14 @@ if ($method === 'GET' && !isset($_GET['id'])) {
         $query = "SELECT * FROM attendance_logs WHERE 1=1";
         $params = [];
 
-        // SECURITY: Guru hanya bisa lihat data sendiri
-        // KECUALI: jika status_rekan=1 → boleh lihat semua presensi HARI INI saja (untuk fitur Status Rekan)
+        // Guru hanya boleh melihat data sendiri. Status rekan memakai endpoint
+        // khusus yang tidak pernah mengekspos koordinat atau catatan presensi.
         $currentRole   = $_SESSION['role'] ?? '';
         $currentUserId = $_SESSION['user_id'] ?? null;
 
         if ($currentRole === 'guru') {
-            $isStatusRekan = isset($_GET['status_rekan']) && $_GET['status_rekan'] == '1';
-            if ($isStatusRekan) {
-                $today    = date('Y-m-d');
-                $query   .= " AND tanggal = ?";
-                $params[] = $today;
-            } else {
-                $query   .= " AND user_id = ?";
-                $params[] = $currentUserId;
-            }
+            $query   .= " AND user_id = ?";
+            $params[] = $currentUserId;
         } elseif (isset($_GET['user_id'])) {
             $user_id = validateInt($_GET['user_id'], 1);
             if ($user_id === false) {
@@ -74,6 +67,18 @@ if ($method === 'GET' && !isset($_GET['id'])) {
 
         $query .= " ORDER BY tanggal DESC, id DESC";
 
+        $paginate = isset($_GET['paginate']) && $_GET['paginate'] == '1';
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $pageSize = min(100, max(1, (int)($_GET['page_size'] ?? 50)));
+        if ($paginate) {
+            $countQuery = preg_replace('/SELECT \* FROM attendance_logs/', 'SELECT COUNT(*) FROM attendance_logs', $query);
+            $countQuery = preg_replace('/ ORDER BY tanggal DESC, id DESC$/', '', $countQuery);
+            $countStmt = $pdo->prepare($countQuery);
+            $countStmt->execute($params);
+            $total = (int)$countStmt->fetchColumn();
+            $query .= ' LIMIT ' . $pageSize . ' OFFSET ' . (($page - 1) * $pageSize);
+        }
+
         $stmt = $pdo->prepare($query);
         $stmt->execute($params);
         $logs = $stmt->fetchAll();
@@ -83,7 +88,10 @@ if ($method === 'GET' && !isset($_GET['id'])) {
             $log = gp_map_attendance_record($log);
         }
 
-        sendResponse(true, 'Data presensi berhasil diambil', $logs);
+        sendResponse(true, 'Data presensi berhasil diambil', $paginate ? [
+            'items' => $logs,
+            'pagination' => ['page' => $page, 'pageSize' => $pageSize, 'total' => $total, 'totalPages' => (int)ceil($total / $pageSize)]
+        ] : $logs);
     } catch (PDOException $e) {
         sendResponse(false, 'Error: ' . $e->getMessage());
     }
@@ -107,37 +115,56 @@ if ($method === 'POST') {
             sendResponse(false, 'Data guru tidak ditemukan');
         }
 
+        if (($_SESSION['role'] ?? '') === 'guru' && ($existing = gp_get_idempotent_attendance($pdo, $user['id'], $data['request_id'] ?? null))) {
+            sendResponse(true, 'Permintaan presensi sebelumnya sudah diproses', ['id' => $existing['id'], 'attendance' => $existing]);
+        }
+
         $status = $data['status'] ?? 'hadir';
         if (!in_array($status, ['hadir', 'hadir_terlambat', 'hadir_izin_terlambat', 'izin', 'sakit'], true)) {
             sendResponse(false, 'Status presensi tidak valid');
         }
 
+        $isGuru = ($_SESSION['role'] ?? '') === 'guru';
         $requiresLocation = in_array($status, ['hadir', 'hadir_terlambat', 'hadir_izin_terlambat'], true);
-        if ($requiresLocation
-            && isset($data['latitude']) && isset($data['longitude'])
-            && !validateCoordinates($data['latitude'], $data['longitude'])) {
-            sendResponse(false, 'Koordinat GPS tidak valid');
+        $assessment = null;
+        if ($isGuru && $requiresLocation) {
+            $settings = gp_get_settings($pdo, [
+                'sekolah_latitude', 'sekolah_longitude', 'radius_gps', 'mode_testing', 'max_gps_accuracy_meters',
+                'lokasi_laki_latitude', 'lokasi_laki_longitude', 'lokasi_perempuan_latitude', 'lokasi_perempuan_longitude',
+                'lokasi_apel_latitude', 'lokasi_apel_longitude', 'apel_senin_enabled'
+            ]);
+            $assessment = gp_enforce_attendance_location(
+                $settings, $user, $data['latitude'] ?? null, $data['longitude'] ?? null, date('Y-m-d'), false, $data['accuracy'] ?? null
+            );
         }
 
+        $pdo->beginTransaction();
         $attendance = gp_create_attendance($pdo, [
             'user' => $user,
-            'date' => $data['tanggal'] ?? date('Y-m-d'),
-            'time' => !empty($data['jamMasuk']) ? $data['jamMasuk'] : date('H:i:s'),
+            // Guru selalu memakai waktu server; admin tetap dapat membuat koreksi historis.
+            'date' => $isGuru ? date('Y-m-d') : ($data['tanggal'] ?? date('Y-m-d')),
+            'time' => $isGuru ? date('H:i:s') : (!empty($data['jamMasuk']) ? $data['jamMasuk'] : date('H:i:s')),
             'status' => $status,
             'keterangan' => $data['keterangan'] ?? '',
             'jam_izin' => $data['jamIzin'] ?? null,
             'jam_sakit' => $data['jamSakit'] ?? null,
             'latitude' => $requiresLocation ? ($data['latitude'] ?? null) : null,
             'longitude' => $requiresLocation ? ($data['longitude'] ?? null) : null,
-            'method' => 'manual',
-            'preserve_status' => ($_SESSION['role'] ?? '') === 'admin'
+            'accuracy' => $data['accuracy'] ?? null,
+            'method' => $isGuru ? 'button' : 'manual',
+            'request_id' => $data['request_id'] ?? null,
+            'location_assessment' => $assessment,
+            'actor_user_id' => $_SESSION['user_id'] ?? null,
+            'preserve_status' => !$isGuru
         ]);
+        $pdo->commit();
 
         sendResponse(true, 'Presensi berhasil disimpan', [
             'id' => $attendance['id'],
             'attendance' => $attendance
         ]);
     } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         handleError($e, 'presensi.php - create');
     }
 }
@@ -149,11 +176,6 @@ if ($method === 'PUT') {
     if (empty($data['id'])) {
         sendResponse(false, 'ID presensi harus diisi');
     }
-
-    // Pastikan kolom status bisa menerima semua nilai (expand ENUM jika perlu)
-    try {
-        $pdo->exec("ALTER TABLE attendance_logs MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'hadir'");
-    } catch (Exception $e) { /* abaikan jika sudah VARCHAR */ }
 
     // Ambil record yang sudah ada
     try {
@@ -168,25 +190,26 @@ if ($method === 'PUT') {
     }
 
     // SECURITY: Guru hanya bisa update data sendiri
-    if ($_SESSION['role'] === 'guru') {
+        if ($_SESSION['role'] === 'guru') {
         if ($rec['user_id'] != $_SESSION['user_id']) {
             sendResponse(false, 'Forbidden: Anda hanya dapat mengubah data presensi Anda sendiri');
         }
 
-        if (!empty($data['jamPulang'])) {
-            $jp = trim($data['jamPulang']);
-            if (strlen($jp) === 5) {
-                $jp .= ':00';
+        if (!empty($data['jamPulang']) || ($data['action'] ?? '') === 'check_out') {
+            if ($existing = gp_get_idempotent_attendance($pdo, (int)$rec['user_id'], $data['request_id'] ?? null)) {
+                sendResponse(true, 'Permintaan presensi pulang sebelumnya sudah diproses', ['attendance' => $existing]);
             }
 
             $attendance = gp_checkout_attendance($pdo, [
                 'record' => $rec,
-                'time' => $jp,
+                'time' => date('H:i:s'),
                 'izin_pulang_awal' => !empty($data['izin_pulang_awal']),
                 'keterangan' => $data['keterangan'] ?? '',
                 'method' => 'manual',
                 'latitude' => $data['latitude'] ?? null,
                 'longitude' => $data['longitude'] ?? null,
+                'accuracy' => $data['accuracy'] ?? null,
+                'request_id' => $data['request_id'] ?? null,
                 'lokasi_pulang' => $data['lokasi_pulang'] ?? null,
                 'validate_location' => true
             ]);
@@ -243,9 +266,12 @@ if ($method === 'PUT') {
             // selain itu pakai default 13:00.
             $jamPulangTarget = '13:00:00';
             $piket = gp_get_piket($pdo, (int)$rec['user_id'], date('Y-m-d'));
-            if ($piket && !empty($piket['jam_pulang_piket'])) {
-                $jp = substr($piket['jam_pulang_piket'], 0, 5);
-                $jamPulangTarget = strlen($jp) === 5 ? $jp . ':00' : $jp;
+            if ($piket) {
+                [, $piketPulangFormatted] = gp_get_piket_pulang_target($pdo, $piket, $rec['tanggal']);
+                if ($piketPulangFormatted !== null) {
+                    $jp = $piketPulangFormatted;
+                    $jamPulangTarget = strlen($jp) === 5 ? $jp . ':00' : $jp;
+                }
             }
 
             $nowTime       = date('H:i:s');
@@ -263,9 +289,11 @@ if ($method === 'PUT') {
             } else {
                 // Sudah waktunya pulang
                 if ($isGuru && !empty($data['jamPulang'])) {
-                    // Validasi guru: batas minimal jam pulang dari setting (default 12:30)
+                    // Validasi guru: batas minimal jam pulang dari setting (default 12:30).
+                    // gp_get_min_pulang_minutes otomatis memakai override per-tanggal
+                    // (pengaturan_harian) bila ada & aktif untuk tanggal record ini.
                     $minPulangFormatted = '12:30';
-                    $minPulangMinutes = gp_get_min_pulang_minutes($pdo, $minPulangFormatted);
+                    $minPulangMinutes = gp_get_min_pulang_minutes($pdo, $minPulangFormatted, $rec['tanggal']);
                     if (((intval(date('H')) * 60) + intval(date('i'))) < $minPulangMinutes) {
                         sendResponse(false, 'Presensi pulang hanya bisa dilakukan mulai pukul ' . $minPulangFormatted . ' WIB');
                     }
@@ -277,10 +305,10 @@ if ($method === 'PUT') {
 
                     if (!$isSpecialWorkday && $piket && !empty($piket['jam_pulang_piket'])) {
                         $nowMin    = (intval(date('H')) * 60) + intval(date('i'));
-                        list($pH, $pM) = explode(':', $piket['jam_pulang_piket']);
-                        $piketMin  = (intval($pH) * 60) + intval($pM);
+                        // Target pulang piket bisa ditimpa override per-tanggal.
+                        [$piketMin, $piketFormatted] = gp_get_piket_pulang_target($pdo, $piket, $rec['tanggal']);
                         if ($nowMin < $piketMin && empty($data['izin_pulang_awal'])) {
-                            sendResponse(false, "PIKET_RESTRICTION|" . substr($piket['jam_pulang_piket'], 0, 5));
+                            sendResponse(false, "PIKET_RESTRICTION|" . $piketFormatted);
                         }
                         if (!empty($data['izin_pulang_awal'])) {
                             $ket = $data['keterangan'] ?? '';
@@ -348,6 +376,11 @@ if ($method === 'PUT') {
             $logStatus = 'Pulang' . (!empty($data['izin_pulang_awal']) ? ' (Izin Awal)' : '');
             gp_write_activity($pdo, $rec['nama'], 'Presensi Pulang', $logStatus);
         } elseif ($isAdmin) {
+            gp_write_attendance_event($pdo, [
+                'attendance_id' => $rec['id'], 'user_id' => $rec['user_id'], 'event_type' => 'admin_adjustment',
+                'method' => 'manual', 'reason' => $keteranganToSave ?: 'Koreksi admin',
+                'actor_user_id' => $_SESSION['user_id'] ?? null, 'occurred_at' => date('Y-m-d H:i:s')
+            ]);
             gp_write_activity($pdo, $_SESSION['nama'] ?? 'Admin', 'Update Presensi', ucfirst(str_replace('_', ' ', $status)));
         }
 

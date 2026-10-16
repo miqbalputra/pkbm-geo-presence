@@ -1,12 +1,12 @@
-const CACHE_NAME = 'geo-presensi-v16';
+const CACHE_NAME = 'presensi-pkbm-v2';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
   '/manifest.json',
-  '/icon_pwa.png'
+  '/icon-192.png',
+  '/icon-512.png'
 ];
 
-// Install: Cache aset dasar dan paksa aktif segera
+// Cache hanya aset statis kecil. HTML shell tidak di-precache agar PWA tidak
+// dapat membuka bundle lama setelah aplikasi dideploy ulang.
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
@@ -14,6 +14,14 @@ self.addEventListener('install', (event) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
+});
+
+// Allow the page to activate a waiting worker immediately when a browser
+// does not honor skipWaiting during an existing PWA session.
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Activate: Bersihkan SEMUA cache lama (agresif) dan ambil alih semua tab
@@ -50,10 +58,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // API and mutating requests must always reach the backend. Calling
+  // caches.match() with a POST request can throw in the service worker and
+  // surface as a generic "Failed to fetch" in the login form.
+  if (url.pathname.startsWith('/api/') || event.request.method !== 'GET') {
+    return;
+  }
+
   // Navigasi halaman: network-first, update cache jika berhasil
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-store' })
         .then((response) => {
           if (response.ok) {
             const clone = response.clone();
@@ -64,6 +79,23 @@ self.addEventListener('fetch', (event) => {
         .catch(() => {
           return caches.match('/index.html');
         })
+    );
+    return;
+  }
+
+  // Shell PWA harus selalu mengambil versi terbaru. Ini mencegah browser
+  // HTTP cache mengembalikan index.html lama saat aplikasi dibuka dari ikon.
+  if (url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match('/index.html'))
     );
     return;
   }

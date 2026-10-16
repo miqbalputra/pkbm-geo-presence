@@ -29,7 +29,7 @@ if ($method === 'POST') {
         
         // Parse QR data
         $qrData = json_decode($data['qr_data'], true);
-        if (!$qrData || !isset($qrData['secret']) || !isset($qrData['type'])) {
+        if (!$qrData || !isset($qrData['type'])) {
             sendResponse(false, 'Format QR Code tidak valid');
         }
         
@@ -52,7 +52,12 @@ if ($method === 'POST') {
             $settings[$s['setting_key']] = $s['setting_value'];
         }
 
-        if (empty($settings['qr_secret']) || $qrData['secret'] !== $settings['qr_secret']) {
+        $issuedAt = (int)($qrData['issued_at'] ?? 0);
+        $expiresAt = (int)($qrData['expires_at'] ?? 0);
+        $nonce = (string)($qrData['nonce'] ?? '');
+        $signature = (string)($qrData['sig'] ?? '');
+        $expectedSignature = hash_hmac('sha256', "attendance|{$issuedAt}|{$expiresAt}|{$nonce}", $settings['qr_secret'] ?? '');
+        if (empty($settings['qr_secret']) || $issuedAt <= 0 || $expiresAt < time() || $expiresAt - $issuedAt > 60 || !hash_equals($expectedSignature, $signature)) {
             sendResponse(false, 'QR Code tidak valid atau sudah kadaluarsa');
         }
         
@@ -102,8 +107,11 @@ if ($method === 'POST') {
 
         if ($existing) {
             $isPulangFlag = isset($data['is_pulang']) && ($data['is_pulang'] === true || $data['is_pulang'] === 1 || $data['is_pulang'] === '1');
-            $minPulangSetting = $settings['jam_min_pulang'] ?? '12:30';
-            $minPulangFormatted = substr($minPulangSetting, 0, 5);
+            // gp_get_min_pulang_minutes otomatis memakai override per-tanggal
+            // (pengaturan_harian) bila aktif, sehingga QR auto-switch ke pulang
+            // di jam override (mis. hari pulang lebih awal).
+            $minPulangFormatted = '12:30';
+            gp_get_min_pulang_minutes($pdo, $minPulangFormatted, $today);
             $currentMinutes = (intval(date('H')) * 60) + intval(date('i'));
             $isPulangRequest = $isPulangFlag || ($currentMinutes >= gp_time_to_minutes($minPulangFormatted));
 
@@ -111,14 +119,19 @@ if ($method === 'POST') {
                 sendResponse(false, 'Anda sudah presensi masuk. Belum bisa presensi pulang sebelum pukul ' . $minPulangFormatted . ' WIB.');
             }
 
-            gp_enforce_attendance_location($settings, $user, $data['latitude'], $data['longitude'], $today, true);
+            $assessment = gp_enforce_attendance_location($settings, $user, $data['latitude'], $data['longitude'], $today, true, $data['accuracy'] ?? null);
 
             $attendance = gp_checkout_attendance($pdo, [
                 'record' => $existing,
                 'time' => $currentTime,
                 'izin_pulang_awal' => !empty($data['izin_pulang_awal']),
                 'keterangan' => $data['keterangan'] ?? '',
-                'method' => 'qr_scan'
+                'method' => 'qr_scan',
+                'latitude' => $data['latitude'],
+                'longitude' => $data['longitude'],
+                'accuracy' => $data['accuracy'] ?? null,
+                'location_assessment' => $assessment,
+                'request_id' => $data['request_id'] ?? null
             ]);
 
             sendResponse(true, 'Presensi pulang berhasil (Smart Scan)!', [
@@ -128,7 +141,7 @@ if ($method === 'POST') {
             ]);
         }
 
-        gp_enforce_attendance_location($settings, $user, $data['latitude'], $data['longitude'], $today, false);
+        $assessment = gp_enforce_attendance_location($settings, $user, $data['latitude'], $data['longitude'], $today, false, $data['accuracy'] ?? null);
 
         $attendance = gp_create_attendance($pdo, [
             'user' => $user,
@@ -138,6 +151,8 @@ if ($method === 'POST') {
             'keterangan' => '',
             'latitude' => $data['latitude'],
             'longitude' => $data['longitude'],
+            'accuracy' => $data['accuracy'] ?? null,
+            'location_assessment' => $assessment,
             'method' => 'qr_scan'
         ]);
 

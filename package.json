@@ -1,34 +1,54 @@
 {
-  "name": "geopresensi-sekolah",
+  "name": "presensi-pkbm-tunas-ilmu",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "build:local": "node scripts/build-local.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "verify:source": "node scripts/verify-source-stack.mjs",
+    "verify:security": "node scripts/verify-build.mjs",
+    "verify:deployment": "node scripts/verify-deployment.mjs",
+    "verify:pwa": "node scripts/verify-pwa.mjs",
+    "test:reconciliation": "node --test scripts/reconcile-attendance.test.mjs",
+    "test:load:staging": "node scripts/load-test-staging.mjs",
+    "verify:staging": "node scripts/verify-staging.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.14",
+    "@radix-ui/react-dropdown-menu": "^2.1.15",
+    "@radix-ui/react-slot": "^1.2.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.38.0",
     "html5-qrcode": "^2.3.8",
-    "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.2",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "jsqr": "^1.4.0",
-    "lucide-react": "^0.294.0",
+    "lucide-react": "^1.29.0",
     "qrcode.react": "^4.2.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "recharts": "^2.10.3",
-    "xlsx": "^0.18.5"
+    "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
-    "@types/react": "^18.2.43",
-    "@types/react-dom": "^18.2.17",
+    "@tailwindcss/vite": "^4.1.10",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
-    "tailwindcss": "^3.3.6",
-    "vite": "^5.0.8"
+    "tailwindcss": "^4.1.10",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
