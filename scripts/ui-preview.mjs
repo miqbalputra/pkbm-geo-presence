@@ -12,6 +12,8 @@ const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).for
 const dateAgo = (days) => { const date = new Date(today + 'T12:00:00+07:00'); date.setDate(date.getDate() - days); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(date) }
 const names = ['Ahmad Fauzi', 'Siti Aminah', 'Muhammad Ridwan', 'Nur Aisyah', 'Abdullah Hasan', 'Fatimah Zahra']
 const teachers = Array.from({ length: 32 }, (_, index) => ({ id: index + 3, idGuru: 'UJI' + (index + 1), nama: names[index % names.length] + (index > 5 ? ' ' + (index + 1) : ''), username: 'guru' + (index + 1), role: 'guru', jenisKelamin: index % 2 ? 'Perempuan' : 'Laki-laki', jabatan: ['Guru Al-Quran'], tanggalBertugas: '2020-01-02', tipeGuru: 'full_time', email: '', noHP: '', alamat: '' }))
+const signatureFixture = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+teachers.forEach((teacher, index) => { teacher.punyaTandaTangan = index % 3 !== 0 })
 const admin = { id: 1, role: 'admin', nama: 'Admin Uji', username: 'admin' }
 const statuses = ['hadir', 'hadir_terlambat', 'izin', 'sakit', 'hadir_izin_terlambat']
 const baseLogs = teachers.slice(0, 29).map((teacher, index) => ({ id: 100 + index, userId: teacher.id, nama: teacher.nama, tanggal: today, status: statuses[index % statuses.length], jamMasuk: '07:15', jamHadir: '07:15', jamIzin: '07:00', jamSakit: '06:50', jamPulang: null, keterangan: index === 0 ? 'Catatan uji panjang untuk memeriksa detail presensi. '.repeat(12) : '', latitude: -5.1477, longitude: 119.4327 }))
@@ -127,7 +129,13 @@ const server = createServer(async (req, res) => {
       }
       if (req.method !== 'GET') return failure('Penulisan fixture ini tidak tersedia; tidak ada data yang diubah.', 400)
       const list = scenario === 'kosong' ? [] : [...baseLogs, ...history]
-      if (path === '/v1/users') return ok(url.searchParams.has('archived') ? [] : scenario === 'kosong' ? [] : teachers)
+      if (path === '/v1/users') {
+        if (url.searchParams.has('id')) {
+          const teacher = teachers.find((item) => String(item.id) === url.searchParams.get('id'))
+          return teacher ? ok({ ...teacher, tandaTangan: teacher.punyaTandaTangan ? signatureFixture : null }) : failure('Guru tidak ditemukan', 404)
+        }
+        return ok(url.searchParams.has('archived') ? [] : scenario === 'kosong' ? [] : teachers)
+      }
       if (path === '/v1/profile') return ok(user)
       if (path === '/v1/settings') return ok(settings())
       if (path === '/v1/guru/home') return ok({ settings: settings(), holiday: holiday(), attendance: attendance(), piket: { isPiketToday: scenario === 'piket', mine: scenario === 'piket' ? { user_id: 3, jam_piket: '07:00' } : null }, pulangThreshold: settings().jam_min_pulang, piketPulangTarget: scenario === 'piket' ? '16:00' : '' })

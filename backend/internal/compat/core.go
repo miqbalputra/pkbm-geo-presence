@@ -94,7 +94,7 @@ func (h *Handler) guru(c *fiber.Ctx) error {
 				}
 				return err
 			}
-			return httpx.Success(c, "Data guru ditemukan", mapUser(user))
+			return httpx.Success(c, "Data guru ditemukan", mapGuru(user, true))
 		}
 		var users []models.User
 		if err := query.Order("archived_at IS NOT NULL, id ASC").Find(&users).Error; err != nil {
@@ -102,7 +102,7 @@ func (h *Handler) guru(c *fiber.Ctx) error {
 		}
 		data := make([]map[string]any, 0, len(users))
 		for _, user := range users {
-			data = append(data, mapUser(user))
+			data = append(data, mapGuru(user, false))
 		}
 		return httpx.Success(c, "Data guru berhasil diambil", data)
 	}

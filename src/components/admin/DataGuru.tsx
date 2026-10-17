@@ -1,21 +1,24 @@
 import { notify } from '../ui/toast'
 import { Notice } from '../ui/page'
-import { useState, useEffect, useRef } from 'react'
-import { Plus, Edit2, Archive, Download, Upload } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Plus, Edit2, Archive, Download, Upload, CheckCircle2, Clock3, Eye, RefreshCw } from 'lucide-react'
 import { createWorkbook, addJsonSheet, downloadWorkbook, readWorkbookRows } from '../../utils/excelExport'
 import { calculateWorkDuration, formatDate, formatDisplayDate } from '../../utils/dateUtils'
 import GuruModal from './GuruModal'
 import { guruAPI } from '../../services/api'
+import { hasTeacherSignature } from '../../utils/teacherSignature'
+import TeacherSignaturePreview from './TeacherSignaturePreview'
 
 function DataGuru() {
   const [dataGuru, setDataGuru] = useState<any[]>([])
-  const [filteredGuru, setFilteredGuru] = useState<any[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingGuru, setEditingGuru] = useState(null)
   const [notification, setNotification] = useState({ show: false, message: '' })
   const [searchTerm, setSearchTerm] = useState('')
   const [filterJK, setFilterJK] = useState('all')
   const [filterJabatan, setFilterJabatan] = useState('all')
+  const [filterSignature, setFilterSignature] = useState('all')
+  const [signatureGuru, setSignatureGuru] = useState<any>(null)
   const loadRequest = useRef(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   useEffect(() => () => { loadRequest.current++ }, [])
@@ -36,7 +39,6 @@ function DataGuru() {
       if (requestId !== loadRequest.current) return
 
       setDataGuru(response.data)
-      setFilteredGuru(response.data)
     } catch (error) {
       if (requestId !== loadRequest.current) return
       setLoadError('Data belum dapat dimuat. Periksa koneksi lalu coba lagi.')
@@ -48,7 +50,7 @@ function DataGuru() {
     }
   }
 
-  useEffect(() => {
+  const filteredGuru = (() => {
     let filtered = [...dataGuru]
 
     // Filter by search term (nama)
@@ -71,8 +73,16 @@ function DataGuru() {
       })
     }
 
-    setFilteredGuru(filtered)
-  }, [searchTerm, filterJK, filterJabatan, dataGuru])
+    if (filterSignature !== 'all') {
+      filtered = filtered.filter(guru => hasTeacherSignature(guru) === (filterSignature === 'saved'))
+    }
+
+    return filtered
+  })()
+  const signedCount = dataGuru.filter(hasTeacherSignature).length
+  const updateSignatureStatus = useCallback((id: number, hasSignature: boolean) => {
+    setDataGuru((rows) => rows.map((guru) => guru.id === id ? { ...guru, punyaTandaTangan: hasSignature } : guru))
+  }, [])
 
   const showNotification = (message) => {
     setNotification({ show: true, message })
@@ -83,6 +93,7 @@ function DataGuru() {
     setSearchTerm('')
     setFilterJK('all')
     setFilterJabatan('all')
+    setFilterSignature('all')
   }
 
   // Get unique jabatan for filter
@@ -157,6 +168,7 @@ function DataGuru() {
       'No': index + 1,
       'ID Guru': guru.idGuru || '-',
       'Nama': guru.nama,
+      'Tanda Tangan': hasTeacherSignature(guru) ? 'Sudah' : 'Belum',
       'Email': guru.email || '-',
       'Tanggal Lahir': guru.tanggalLahir || '-',
       'Umur': calculateAge(guru.tanggalLahir),
@@ -238,6 +250,10 @@ function DataGuru() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-800">Data Guru</h1>
         <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void loadDataGuru()} disabled={loading}
+            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />Perbarui
+          </button>
           <button
             onClick={handleAdd}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -260,6 +276,19 @@ function DataGuru() {
         </div>
       </div>
 
+      <section aria-label="Ringkasan tanda tangan guru" aria-busy={loading} className="grid gap-3 sm:grid-cols-3">
+        {[
+          { label: 'Total Guru', count: dataGuru.length, tone: 'border-gray-200 bg-white text-gray-800' },
+          { label: 'Sudah Membuat Tanda Tangan', count: signedCount, tone: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+          { label: 'Belum Membuat Tanda Tangan', count: dataGuru.length - signedCount, tone: 'border-amber-200 bg-amber-50 text-amber-800' },
+        ].map(({ label, count, tone }) => (
+          <div key={label} className={`rounded-xl border p-4 ${tone}`}>
+            <p className="text-sm font-medium">{label}</p>
+            <p className="mt-2 text-2xl font-bold tabular-nums">{loading ? 'Memuat...' : count}</p>
+          </div>
+        ))}
+      </section>
+
       {/* Info Arsip */}
       {(dataGuru.length > 0 || filteredGuru.length === 0) && (
         <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-lg p-3 text-sm flex items-center gap-2">
@@ -272,7 +301,7 @@ function DataGuru() {
 
       {/* Filter & Search */}
       <div className="bg-white rounded-lg shadow p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           {/* Search */}
           <div className="md:col-span-2">
             <label htmlFor="dataguru-field-1" className="block text-sm font-medium text-gray-700 mb-2">
@@ -319,6 +348,15 @@ function DataGuru() {
               ))}
             </select>
           </div>
+          <div>
+            <label htmlFor="dataguru-signature" className="mb-2 block text-sm font-medium text-gray-700">Tanda Tangan</label>
+            <select id="dataguru-signature" value={filterSignature} onChange={(event) => setFilterSignature(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-blue-500">
+              <option value="all">Semua status</option>
+              <option value="saved">Sudah membuat</option>
+              <option value="missing">Belum membuat</option>
+            </select>
+          </div>
         </div>
 
         {/* Filter Info & Reset */}
@@ -326,7 +364,7 @@ function DataGuru() {
           <p className="text-sm text-gray-600">
             Menampilkan {filteredGuru.length} dari {dataGuru.length} guru
           </p>
-          {(searchTerm || filterJK !== 'all' || filterJabatan !== 'all') && (
+          {(searchTerm || filterJK !== 'all' || filterJabatan !== 'all' || filterSignature !== 'all') && (
             <button
               onClick={resetFilters}
               className="text-sm text-blue-600 hover:text-blue-800 font-medium"
@@ -343,11 +381,12 @@ function DataGuru() {
           <p className="text-xs text-gray-400">Alamat dan jabatan lengkap tersedia saat diarahkan.</p>
         </div>
         <div className="overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[1906px] table-fixed text-left">
+          <table className="w-full min-w-[2086px] table-fixed text-left">
             <colgroup>
               <col className="w-12" />
               <col className="w-[90px]" />
               <col className="w-[170px]" />
+              <col className="w-[180px]" />
               <col className="w-[210px]" />
               <col className="w-[120px]" />
               <col className="w-20" />
@@ -366,6 +405,7 @@ function DataGuru() {
                 <th className="whitespace-nowrap px-3 py-3.5">No</th>
                 <th className="whitespace-nowrap px-3 py-3.5">ID Guru</th>
                 <th className="whitespace-nowrap px-3 py-3.5">Nama</th>
+                <th className="whitespace-nowrap px-3 py-3.5">Tanda Tangan</th>
                 <th className="whitespace-nowrap px-3 py-3.5">Email</th>
                 <th className="whitespace-nowrap px-3 py-3.5">Tanggal Lahir</th>
                 <th className="whitespace-nowrap px-3 py-3.5">Umur</th>
@@ -381,7 +421,9 @@ function DataGuru() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
-              {filteredGuru.length > 0 ? filteredGuru.map((guru, index) => {
+              {loading ? (
+                <tr><td colSpan={16} role="status" className="px-6 py-10 text-center text-gray-500">Memuat data guru...</td></tr>
+              ) : filteredGuru.length > 0 ? filteredGuru.map((guru, index) => {
                 const calculateAge = (birthDate) => {
                   if (!birthDate) return '-'
                   const today = new Date()
@@ -399,6 +441,23 @@ function DataGuru() {
                   <td className="whitespace-nowrap px-3 py-3 tabular-nums text-gray-500">{index + 1}</td>
                   <td className="truncate whitespace-nowrap px-3 py-3 font-medium text-blue-700" title={guru.idGuru || '-'}>{guru.idGuru || '-'}</td>
                   <td className="truncate whitespace-nowrap px-3 py-3 font-medium text-gray-900" title={guru.nama}>{guru.nama}</td>
+                  <td className="px-3 py-3">
+                    {hasTeacherSignature(guru) ? (
+                      <div className="flex flex-col items-start gap-1.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800">
+                          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />Sudah
+                        </span>
+                        <button type="button" onClick={() => setSignatureGuru(guru)} aria-label={`Lihat tanda tangan ${guru.nama}`}
+                          className="inline-flex items-center gap-1 rounded text-xs font-medium text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                          <Eye className="h-3.5 w-3.5" aria-hidden="true" />Lihat tanda tangan
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800">
+                        <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />Belum
+                      </span>
+                    )}
+                  </td>
                   <td className="truncate whitespace-nowrap px-3 py-3 text-gray-600" title={guru.email || ''}>{guru.email || '-'}</td>
                   <td className="whitespace-nowrap px-3 py-3 text-gray-600">{formatDisplayDate(guru.tanggalLahir)}</td>
                   <td className="whitespace-nowrap px-3 py-3 text-gray-600">{calculateAge(guru.tanggalLahir)}</td>
@@ -438,7 +497,7 @@ function DataGuru() {
                 )
               }) : (
                 <tr>
-                  <td colSpan={15} className="px-6 py-10 text-center text-gray-500">
+                  <td colSpan={16} className="px-6 py-10 text-center text-gray-500">
                     Tidak ada data guru yang sesuai dengan filter
                   </td>
                 </tr>
@@ -447,6 +506,10 @@ function DataGuru() {
           </table>
         </div>
       </div>
+
+      {signatureGuru && (
+        <TeacherSignaturePreview key={signatureGuru.id} guru={signatureGuru} onClose={() => setSignatureGuru(null)} onStatusLoaded={updateSignatureStatus} />
+      )}
 
       {isModalOpen && (
         <GuruModal

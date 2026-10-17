@@ -211,6 +211,17 @@ func mapUser(user models.User) map[string]any {
 	return result
 }
 
+// The directory needs the status; fetch the image only when opening a teacher.
+func mapGuru(user models.User, includeSignature bool) map[string]any {
+	result := mapUser(user)
+	result["punyaTandaTangan"] = user.TandaTangan != nil && strings.TrimSpace(*user.TandaTangan) != ""
+	if !includeSignature {
+		delete(result, "tandaTangan")
+		delete(result, "tanda_tangan")
+	}
+	return result
+}
+
 func mapAttendance(record models.AttendanceLog) map[string]any { return record.Public() }
 
 func invalid(c *fiber.Ctx, message string) error {
