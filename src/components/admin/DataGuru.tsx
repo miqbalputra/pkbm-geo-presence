@@ -1,13 +1,81 @@
 import { notify } from '../ui/toast'
 import { Notice } from '../ui/page'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Edit2, Archive, Download, Upload, CheckCircle2, Clock3, Eye, RefreshCw } from 'lucide-react'
+import { Plus, Edit2, Archive, Download, Upload, CheckCircle2, Clock3, Eye, RefreshCw, Loader2 } from 'lucide-react'
+import JSZip from 'jszip'
 import { createWorkbook, addJsonSheet, downloadWorkbook, readWorkbookRows } from '../../utils/excelExport'
 import { calculateWorkDuration, formatDate, formatDisplayDate } from '../../utils/dateUtils'
 import GuruModal from './GuruModal'
 import { guruAPI } from '../../services/api'
-import { hasTeacherSignature } from '../../utils/teacherSignature'
+import { getTeacherSignature, hasTeacherSignature } from '../../utils/teacherSignature'
 import TeacherSignaturePreview from './TeacherSignaturePreview'
+
+function buildTeacherExportRows(teachers: any[]) {
+  const calculateAge = (birthDate) => {
+    if (!birthDate) return '-'
+    const today = new Date()
+    const birth = new Date(birthDate)
+    let age = today.getFullYear() - birth.getFullYear()
+    const monthDiff = today.getMonth() - birth.getMonth()
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--
+    }
+    return age + ' tahun'
+  }
+
+  return teachers.map((guru, index) => ({
+    'No': index + 1,
+    'ID Guru': guru.idGuru || '-',
+    'Nama': guru.nama,
+    'Tanda Tangan': hasTeacherSignature(guru) ? 'Sudah' : 'Belum',
+    'Email': guru.email || '-',
+    'Tanggal Lahir': guru.tanggalLahir || '-',
+    'Umur': calculateAge(guru.tanggalLahir),
+    'Jenis Kelamin': guru.jenisKelamin,
+    'Alamat': guru.alamat,
+    'No HP': guru.noHP || '-',
+    'Jabatan': Array.isArray(guru.jabatan) ? guru.jabatan.join(', ') : guru.jabatan,
+    'Tanggal Bertugas': guru.tanggalBertugas,
+    'Lama Bertugas': calculateWorkDuration(guru.tanggalBertugas),
+    'Username': guru.username,
+    'Password': guru.password,
+  }))
+}
+
+function makeSafeFilenamePart(value: unknown) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^\.+/, '')
+    .replace(/[. ]+$/, '')
+    .slice(0, 80)
+}
+
+function decodeTeacherSignature(signature: string) {
+  const match = signature.match(/^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/)
+  if (!match) throw new Error('Format tanda tangan bukan PNG yang valid.')
+
+  let binary: string
+  try {
+    binary = atob(match[1])
+  } catch {
+    throw new Error('Data tanda tangan PNG tidak dapat dibaca.')
+  }
+
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  const pngHeader = [137, 80, 78, 71, 13, 10, 26, 10]
+  if (pngHeader.some((byte, index) => bytes[index] !== byte)) {
+    throw new Error('Data tanda tangan tidak memiliki header PNG yang valid.')
+  }
+
+  return bytes
+}
+
+function csvCell(value: unknown) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`
+}
 
 function DataGuru() {
   const [dataGuru, setDataGuru] = useState<any[]>([])
@@ -19,6 +87,8 @@ function DataGuru() {
   const [filterJabatan, setFilterJabatan] = useState('all')
   const [filterSignature, setFilterSignature] = useState('all')
   const [signatureGuru, setSignatureGuru] = useState<any>(null)
+  const [bulkDownloading, setBulkDownloading] = useState(false)
+  const [bulkDownloadProgress, setBulkDownloadProgress] = useState('')
   const loadRequest = useRef(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   useEffect(() => () => { loadRequest.current++ }, [])
@@ -152,40 +222,99 @@ function DataGuru() {
   }
 
   const handleExport = () => {
-    const calculateAge = (birthDate) => {
-      if (!birthDate) return '-'
-      const today = new Date()
-      const birth = new Date(birthDate)
-      let age = today.getFullYear() - birth.getFullYear()
-      const monthDiff = today.getMonth() - birth.getMonth()
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-        age--
-      }
-      return age + ' tahun'
-    }
-
-    const exportData = dataGuru.map((guru, index) => ({
-      'No': index + 1,
-      'ID Guru': guru.idGuru || '-',
-      'Nama': guru.nama,
-      'Tanda Tangan': hasTeacherSignature(guru) ? 'Sudah' : 'Belum',
-      'Email': guru.email || '-',
-      'Tanggal Lahir': guru.tanggalLahir || '-',
-      'Umur': calculateAge(guru.tanggalLahir),
-      'Jenis Kelamin': guru.jenisKelamin,
-      'Alamat': guru.alamat,
-      'No HP': guru.noHP || '-',
-      'Jabatan': Array.isArray(guru.jabatan) ? guru.jabatan.join(', ') : guru.jabatan,
-      'Tanggal Bertugas': guru.tanggalBertugas,
-      'Lama Bertugas': calculateWorkDuration(guru.tanggalBertugas),
-      'Username': guru.username,
-      'Password': guru.password
-    }))
-
+    const exportData = buildTeacherExportRows(dataGuru)
     const fileName = `Data_Guru_${formatDate(new Date())}.xlsx`
     const wb = createWorkbook()
     addJsonSheet(wb, 'Data Guru', exportData)
     downloadWorkbook(wb, fileName).catch((error) => showNotification('Gagal export Excel: ' + error.message))
+  }
+
+  const handleBulkDownload = async () => {
+    if (loading || bulkDownloading || dataGuru.length === 0) return
+
+    setBulkDownloading(true)
+    setBulkDownloadProgress('Menyiapkan data...')
+
+    try {
+      const teachersWithSignatures = dataGuru.filter(hasTeacherSignature)
+      const signatureFiles = new Map<number, string>()
+      const zip = new JSZip()
+
+      for (let offset = 0; offset < teachersWithSignatures.length; offset += 5) {
+        const batch = teachersWithSignatures.slice(offset, offset + 5)
+        const results = await Promise.all(batch.map(async (guru) => {
+          const response = await guruAPI.getById(guru.id)
+          const signature = getTeacherSignature(response.data || {})
+          if (!signature) {
+            throw new Error(`Tanda tangan ${guru.nama} tidak ditemukan. Perbarui data guru lalu coba lagi.`)
+          }
+
+          const filenamePart = makeSafeFilenamePart(guru.idGuru || `guru-${guru.id}`) || `guru-${guru.id}`
+          const namePart = makeSafeFilenamePart(guru.nama) || 'tanpa-nama'
+          const filename = `${filenamePart}_${namePart}`.slice(0, 120) + '.png'
+          zip.file(`Tanda_Tangan/${filename}`, decodeTeacherSignature(signature))
+          return { id: guru.id, filename }
+        }))
+
+        results.forEach(({ id, filename }) => signatureFiles.set(id, filename))
+        const completed = Math.min(offset + batch.length, teachersWithSignatures.length)
+        setBulkDownloadProgress(`Mengambil tanda tangan ${completed}/${teachersWithSignatures.length}...`)
+      }
+
+      const date = formatDate(new Date())
+      const workbook = createWorkbook()
+      addJsonSheet(workbook, 'Data Guru', buildTeacherExportRows(dataGuru))
+      zip.file(`Data_Guru_${date}.xlsx`, await workbook.xlsx.writeBuffer())
+
+      const manifest = [
+        ['ID Guru', 'Nama', 'Status Tanda Tangan', 'Berkas'],
+        ...dataGuru.map((guru) => {
+          const filename = signatureFiles.get(guru.id)
+          return [
+            guru.idGuru || '-',
+            guru.nama || '-',
+            filename ? 'Tersedia' : 'Belum ada',
+            filename ? `Tanda_Tangan/${filename}` : '-',
+          ]
+        }),
+      ].map((row) => row.map(csvCell).join(',')).join('\r\n')
+      zip.file('Daftar_Tanda_Tangan.csv', `\uFEFF${manifest}`)
+      zip.file('PETUNJUK.txt', [
+        'Arsip data guru PKBM Tunas Ilmu',
+        '',
+        `Jumlah guru: ${dataGuru.length}`,
+        `Tanda tangan tersimpan: ${signatureFiles.size}`,
+        `Tanda tangan belum tersedia: ${dataGuru.length - signatureFiles.size}`,
+        '',
+        'Data_Guru_*.xlsx berisi data guru yang tersedia pada halaman Data Guru.',
+        'Tanda_Tangan/ berisi file PNG tanda tangan yang tersimpan.',
+        'Daftar_Tanda_Tangan.csv memetakan guru ke file tanda tangannya.',
+      ].join('\r\n'))
+
+      setBulkDownloadProgress('Menyusun file ZIP...')
+      const blob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Data_Guru_dan_Tanda_Tangan_${date}.zip`
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+
+      showNotification(`Berhasil mengunduh ${dataGuru.length} data guru dan ${signatureFiles.size} tanda tangan.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Terjadi kesalahan yang tidak diketahui.'
+      showNotification('Gagal mengunduh data guru: ' + message)
+    } finally {
+      setBulkDownloading(false)
+      setBulkDownloadProgress('')
+    }
   }
 
   const handleImport = (e) => {
@@ -267,6 +396,17 @@ function DataGuru() {
           >
             <Download className="w-4 h-4" />
             Export Excel
+          </button>
+          <button type="button" onClick={() => void handleBulkDownload()}
+            disabled={loading || bulkDownloading || dataGuru.length === 0}
+            aria-label="Unduh data semua guru aktif beserta tanda tangan sebagai ZIP"
+            aria-busy={bulkDownloading}
+            title="Unduh semua data guru aktif dan tanda tangan yang tersimpan"
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+            {bulkDownloading
+              ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              : <Download className="h-4 w-4" aria-hidden="true" />}
+            {bulkDownloading ? bulkDownloadProgress : 'Unduh Semua (.zip)'}
           </button>
           <label className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 cursor-pointer">
             <Upload className="w-4 h-4" />
