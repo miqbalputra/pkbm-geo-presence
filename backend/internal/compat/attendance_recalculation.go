@@ -17,7 +17,7 @@ import (
 
 var errTodayCheckInRecalculationStale = errors.New("catatan presensi berubah saat perbaikan diproses")
 
-var generatedLateNotePattern = regexp.MustCompile(`(?i)Terlambat\s+(\d+)\s+menit(?:\s+\(Parah\))?(?:\s+\((?:Piket(?:\s+Apel)?|Apel\s+Senin|Event:\s*[^)]*)\))?`)
+var generatedLateNotePattern = regexp.MustCompile(`(?i)Terlambat\s+(\d+)\s+menit(?:\s+\(Parah\))?(?:\s+\((?:Piket(?:\s+(?:Apel|Sabtu))?|Apel\s+Senin|Event:\s*[^)]*)\))?`)
 
 // todayCheckInRecalculation lets an administrator correct one selected day's
 // stored arrival statuses after updating the normal check-in time. The chosen
@@ -182,7 +182,7 @@ func (h *Handler) todayCheckInRecalculationPreview(date time.Time, settings map[
 		}
 	}
 	var users []models.User
-	if err := h.db.Select("id, nama, tipe_guru").Where("id IN ? AND role = ?", userIDs, "guru").Find(&users).Error; err != nil {
+	if err := h.db.Select("id, nama, tipe_guru, pokjar").Where("id IN ? AND role = ?", userIDs, "guru").Find(&users).Error; err != nil {
 		return response, err
 	}
 	usersByID := make(map[uint]models.User, len(users))
@@ -200,18 +200,22 @@ func (h *Handler) todayCheckInRecalculationPreview(date time.Time, settings map[
 		if checkIn == nil || strings.TrimSpace(*checkIn) == "" {
 			checkIn = row.JamHadir
 		}
-		if checkIn == nil || strings.TrimSpace(*checkIn) == "" {
+		if (checkIn == nil || strings.TrimSpace(*checkIn) == "") && !isPokjarTeacher(user) {
 			response.SkippedNoTime++
 			continue
 		}
-		minutes, valid := timeToMinutes(*checkIn)
-		if !valid {
+		minutes, valid := timeToMinutes(stringPointerValue(checkIn))
+		if !valid && !isPokjarTeacher(user) {
 			response.SkippedNoTime++
 			continue
 		}
-		target, targetLabel, err := h.checkInTarget(user.ID, date, settings)
-		if err != nil {
-			return response, err
+		target, targetLabel := "", "Pokjar · hadir berdasarkan tanggal"
+		if !isPokjarTeacher(user) {
+			var err error
+			target, targetLabel, err = h.checkInTarget(user.ID, date, settings)
+			if err != nil {
+				return response, err
+			}
 		}
 		checkedInAt := time.Date(date.Year(), date.Month(), date.Day(), minutes/60, minutes%60, 0, 0, date.Location())
 		newStatus, generatedLateNote := classifyCheckIn(user, checkedInAt, target, targetLabel, response.ToleranceMinutes, "")
@@ -224,7 +228,7 @@ func (h *Handler) todayCheckInRecalculationPreview(date time.Time, settings map[
 			ID:             row.ID,
 			UserID:         row.UserID,
 			Nama:           row.Nama,
-			JamMasuk:       normalizeTime(*checkIn),
+			JamMasuk:       normalizeTime(stringPointerValue(checkIn)),
 			OldStatus:      row.Status,
 			NewStatus:      newStatus,
 			OldKeterangan:  oldNote,
@@ -255,20 +259,26 @@ func (h *Handler) todayCheckInRecalculationPreview(date time.Time, settings map[
 // note added manually by an administrator stays in place, including when a
 // record becomes on-time and its automatic delay sentence is removed.
 func recalculatedCheckInNote(current, generated, status string) string {
-	match := generatedLateNotePattern.FindStringIndex(current)
-	if status != "hadir_terlambat" {
-		if match == nil {
+	matches := generatedLateNotePattern.FindAllStringIndex(current, -1)
+	if len(matches) == 0 {
+		if status != "hadir_terlambat" {
 			return current
 		}
-		return joinAttendanceNoteFragments(current[:match[0]], current[match[1]:])
-	}
-	if match == nil {
 		if strings.TrimSpace(current) == "" {
 			return generated
 		}
 		return joinAttendanceNoteFragments(current, generated)
 	}
-	return joinAttendanceNoteFragments(current[:match[0]], generated, current[match[1]:])
+	parts := []string{}
+	cursor := 0
+	for index, match := range matches {
+		parts = append(parts, current[cursor:match[0]])
+		if index == 0 && status == "hadir_terlambat" {
+			parts = append(parts, generated)
+		}
+		cursor = match[1]
+	}
+	return joinAttendanceNoteFragments(append(parts, current[cursor:])...)
 }
 
 func joinAttendanceNoteFragments(parts ...string) string {

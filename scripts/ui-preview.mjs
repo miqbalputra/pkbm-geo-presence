@@ -15,6 +15,14 @@ const teachers = Array.from({ length: 32 }, (_, index) => ({ id: index + 3, idGu
 const signatureFixture = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 teachers.forEach((teacher, index) => { teacher.punyaTandaTangan = index % 3 !== 0 })
 const admin = { id: 1, role: 'admin', nama: 'Admin Uji', username: 'admin' }
+let correctionBatches = []
+let correctionApplied = false
+const correctionItems = (options) => [
+  { id: 501, nama: 'Tutor Pusat A (contoh)', date: options.start_date, category: 'pusat', pokjar: '', jam_masuk: '07:10:00', target: options.normal_time, target_label: '', old_status: 'hadir_terlambat', new_status: 'hadir', old_keterangan: 'Catatan admin | Terlambat 10 menit', new_keterangan: 'Catatan admin' },
+  { id: 502, nama: 'Tutor Piket B (contoh)', date: options.start_date, category: 'pusat', pokjar: '', jam_masuk: '07:10:00', target: '07:00', target_label: '(Piket Sabtu)', old_status: 'hadir_izin_terlambat', new_status: 'hadir_izin_terlambat', old_keterangan: 'Terlambat 10 menit | Izin kepala', new_keterangan: 'Terlambat 10 menit (Piket Sabtu) | Izin kepala' },
+  { id: 503, nama: 'Tutor Pokjar Sore (contoh)', date: options.start_date, category: 'pokjar', pokjar: 'Lentera Qalbu', jam_masuk: '14:00:00', target: '', target_label: '', old_status: 'hadir_terlambat', new_status: 'hadir', old_keterangan: 'Terlambat 420 menit | Catatan manual', new_keterangan: 'Catatan manual' },
+  { id: 504, nama: 'Tutor Pokjar Tanpa Jam (contoh)', date: options.start_date, category: 'pokjar', pokjar: 'Umar bin Khattab', jam_masuk: '', target: '', target_label: '', old_status: 'hadir_izin_terlambat', new_status: 'hadir', old_keterangan: 'Terlambat 10 menit | Bukti hadir diverifikasi', new_keterangan: 'Bukti hadir diverifikasi' },
+].filter(item => options.scope === 'all' || item.category === options.scope)
 const statuses = ['hadir', 'hadir_terlambat', 'izin', 'sakit', 'hadir_izin_terlambat']
 const baseLogs = teachers.slice(0, 29).map((teacher, index) => ({ id: 100 + index, userId: teacher.id, nama: teacher.nama, tanggal: today, status: statuses[index % statuses.length], jamMasuk: '07:15', jamHadir: '07:15', jamIzin: '07:00', jamSakit: '06:50', jamPulang: null, keterangan: index === 0 ? 'Catatan uji panjang untuk memeriksa detail presensi. '.repeat(12) : '', latitude: -5.1477, longitude: 119.4327 }))
 const history = Array.from({ length: 5 }, (_, i) => ({ ...baseLogs[0], id: 200 + i, tanggal: dateAgo(i + 1), jamPulang: '14:30', keterangan: '' }))
@@ -106,6 +114,29 @@ const server = createServer(async (req, res) => {
       if (path === '/v1/auth/me') return ok(user)
       if (role === 'guru' && ['/v1/operations/optional-workdays', '/v1/operations/weekend-overrides', '/v1/operations/checkin-recalculation', '/v1/operations/today-checkin-recalculation'].includes(path)) return failure('Forbidden', 403)
       if (path === '/v1/activities' && req.method === 'POST') return ok({})
+      if (path.startsWith('/v1/operations/attendance-corrections')) {
+        if (role !== 'admin') return failure('Forbidden', 403)
+        if (path.endsWith('/preview')) {
+          const options = Object.fromEntries(url.searchParams)
+          const items = correctionApplied ? [] : correctionItems(options)
+          return ok({ options, preview_hash: 'isolated-ui-fixture', processed: 8, changed: items.length, pusat_changed: items.filter(item => item.category === 'pusat').length, pokjar_changed: items.filter(item => item.category === 'pokjar').length, skipped_no_time: 0, skipped_no_user: 0, skipped_non_workday: 1, items })
+        }
+        if (path.endsWith('/apply')) {
+          if (scenario === 'gagal-simpan') return failure('Data atau aturan berubah; buat pratinjau baru.', 409)
+          const items = correctionItems(payload)
+          const batch = { ...payload, id: 'koreksi-contoh-' + (correctionBatches.length + 1), changed: items.length, created_at: new Date().toISOString(), undone_at: null, items }
+          correctionBatches.unshift(batch); correctionApplied = true
+          return ok(batch, 'Perbaikan contoh tersimpan dalam memori; tidak memakai database produksi')
+        }
+        const id = path.split('/')[4]
+        if (id) {
+          const batch = correctionBatches.find(batch => batch.id === id)
+          if (!batch) return failure('Tidak ditemukan', 404)
+          if (path.endsWith('/undo')) { batch.undone_at = new Date().toISOString(); correctionApplied = false; return ok(null, 'Koreksi contoh dibatalkan') }
+          return ok({ batch, items: batch.items })
+        }
+        return ok(correctionBatches)
+      }
       if (scenario === 'gagal-muat') return failure('Simulasi server tidak dapat dihubungi.')
       if (scenario === 'lambat') await new Promise((done) => setTimeout(done, 1800))
       if (path === '/v1/operations/checkin-recalculation' || path === '/v1/operations/today-checkin-recalculation') {

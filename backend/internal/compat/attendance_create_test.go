@@ -44,6 +44,10 @@ func TestCreateAttendanceSucceedsWhenAuditLogIsUnavailable(t *testing.T) {
 	if err := db.Create(&models.Setting{Key: "weekend_workday_enabled", Value: "1"}).Error; err != nil {
 		t.Fatal(err)
 	}
+	// This test covers audit failure, independently of PKBM's Saturday calendar.
+	if err := db.Create(&models.Setting{Key: "workday_days", Value: "0,1,2,3,4,5,6"}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := config.Config{AppTimezone: "Asia/Jakarta"}
 	h := NewHandler(db, cfg, auth.NewJWTManager(cfg))

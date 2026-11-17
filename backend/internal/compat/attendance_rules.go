@@ -14,9 +14,6 @@ import (
 // PHP implementation. The school default applies unless a special workday or
 // an active duty roster (piket) supplies an earlier target.
 func (h *Handler) checkInTarget(userID uint, date time.Time, settings map[string]string) (string, string, error) {
-	target := settingTime(settings["jam_masuk_normal"], "07:20")
-	label := ""
-
 	var holiday models.Holiday
 	holidayQuery := h.db.
 		Where("tanggal >= ? AND tanggal < ?", date, date.AddDate(0, 0, 1)).
@@ -25,7 +22,7 @@ func (h *Handler) checkInTarget(userID uint, date time.Time, settings map[string
 		return "", "", holidayQuery.Error
 	}
 	if holidayQuery.Error == nil && holiday.IsWorkday && holiday.JamMasukKhusus != nil && strings.TrimSpace(*holiday.JamMasukKhusus) != "" {
-		return settingTime(*holiday.JamMasukKhusus, target), " (Event: " + holiday.Nama + ")", nil
+		return targetForLoadedRules(models.User{}, date, settings, &holiday, nil)
 	}
 
 	rotationSettings(settings)
@@ -34,10 +31,7 @@ func (h *Handler) checkInTarget(userID uint, date time.Time, settings map[string
 		return "", "", rotationErr
 	}
 	if rotationControlsDate {
-		if isRotationPiket {
-			return settingTime(settings["piket_jam_masuk"], "07:00"), " (Piket Sabtu)", nil
-		}
-		return target, "", nil
+		return rotationCheckInTarget(settings, isRotationPiket)
 	}
 
 	var piket models.JadwalPiket
@@ -45,7 +39,24 @@ func (h *Handler) checkInTarget(userID uint, date time.Time, settings map[string
 	if piketQuery.Error != nil && piketQuery.Error != gorm.ErrRecordNotFound {
 		return "", "", piketQuery.Error
 	}
-	hasPiket := piketQuery.Error == nil
+	var schedule *models.JadwalPiket
+	if piketQuery.Error == nil {
+		schedule = &piket
+	}
+	return targetForLoadedRules(models.User{}, date, settings, &holiday, schedule)
+}
+
+// Shared by live attendance and bulk corrections. Bulk operations preload the
+// same rules once, avoiding a database query for every teacher and date.
+func targetForLoadedRules(user models.User, date time.Time, settings map[string]string, holiday *models.Holiday, piket *models.JadwalPiket) (string, string, error) {
+	target := settingTime(settings["jam_masuk_normal"], "07:20")
+	if holiday != nil && holiday.IsWorkday && holiday.JamMasukKhusus != nil && strings.TrimSpace(*holiday.JamMasukKhusus) != "" {
+		return settingTime(*holiday.JamMasukKhusus, target), " (Event: " + holiday.Nama + ")", nil
+	}
+	if date.Weekday() == time.Saturday && settings["piket_rotation_enabled"] != "0" {
+		return rotationCheckInTarget(settings, isRotationTeacherOnDate(settings, user, date))
+	}
+	hasPiket := piket != nil
 
 	if date.Weekday() == time.Monday {
 		if settings["apel_senin_enabled"] == "1" {
@@ -61,10 +72,20 @@ func (h *Handler) checkInTarget(userID uint, date time.Time, settings map[string
 		return settingTime(*piket.JamPiket, target), " (Piket)", nil
 	}
 
-	return target, label, nil
+	return target, "", nil
 }
 
-func classifyCheckIn(_ models.User, checkedInAt time.Time, target, targetLabel, toleranceValue, note string) (string, string) {
+func rotationCheckInTarget(settings map[string]string, assigned bool) (string, string, error) {
+	if assigned {
+		return settingTime(settings["piket_jam_masuk"], "07:00"), " (Piket Sabtu)", nil
+	}
+	return settingTime(settings["jam_masuk_normal"], "07:20"), "", nil
+}
+
+func classifyCheckIn(user models.User, checkedInAt time.Time, target, targetLabel, toleranceValue, note string) (string, string) {
+	if isPokjarTeacher(user) {
+		return "hadir", note
+	}
 	targetMinutes, validTarget := timeToMinutes(target)
 	if !validTarget {
 		targetMinutes, _ = timeToMinutes("07:20")
@@ -85,6 +106,10 @@ func classifyCheckIn(_ models.User, checkedInAt time.Time, target, targetLabel, 
 	return "hadir_terlambat", "Terlambat " + strconv.Itoa(lateMinutes) + " menit" + severity + targetLabel
 }
 
+func isPokjarTeacher(user models.User) bool {
+	return user.Pokjar != nil && strings.TrimSpace(*user.Pokjar) != ""
+}
+
 func isAllowedPokjarStatus(status string) bool {
 	return status == "hadir" || status == "izin" || status == "sakit"
 }
@@ -94,6 +119,9 @@ func isAllowedPokjarStatus(status string) bool {
 // check-in time is absent or not later than its target, so the peer-status API
 // never invents a delay for manually corrected records.
 func (h *Handler) lateMinutesForAttendance(user models.User, attendance models.AttendanceLog, date time.Time, settings map[string]string) (*int, error) {
+	if isPokjarTeacher(user) {
+		return nil, nil
+	}
 	checkInTime := attendance.JamMasuk
 	if checkInTime == nil || strings.TrimSpace(*checkInTime) == "" {
 		checkInTime = attendance.JamHadir
@@ -126,6 +154,9 @@ func (h *Handler) lateMinutesForAttendance(user models.User, attendance models.A
 // intentionally read-only: administrators' historical/manual corrections stay
 // untouched, while teacher-facing views still show the rule that applies now.
 func (h *Handler) derivedAttendanceStatus(user models.User, attendance models.AttendanceLog, date time.Time, settings map[string]string) (string, error) {
+	if isPokjarTeacher(user) && isPresentRevisionStatus(attendance.Status) {
+		return "hadir", nil
+	}
 	if attendance.Status != "hadir" {
 		return attendance.Status, nil
 	}

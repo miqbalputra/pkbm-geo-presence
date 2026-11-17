@@ -768,6 +768,14 @@ export const todayCheckInRecalculationAPI = {
   },
 }
 
+export const bulkAttendanceCorrectionAPI = {
+  preview: (options) => fetchAPI('/v1/operations/attendance-corrections/preview?' + new URLSearchParams(options), { method: 'GET', timeoutMs: 30000, silent: true }),
+  apply: (options, hash) => fetchAPI('/v1/operations/attendance-corrections/apply', { method: 'POST', body: JSON.stringify({ ...options, preview_hash: hash }), timeoutMs: 60000, silent: true }),
+  history: () => fetchAPI('/v1/operations/attendance-corrections/', { method: 'GET', silent: true }),
+  details: (id) => fetchAPI(`/v1/operations/attendance-corrections/${encodeURIComponent(id)}`, { method: 'GET', silent: true }),
+  undo: (id) => fetchAPI(`/v1/operations/attendance-corrections/${encodeURIComponent(id)}/undo`, { method: 'POST', timeoutMs: 60000, silent: true }),
+}
+
 // Satu sumber data untuk seluruh dashboard Analitik. Endpoint ini hanya
 // membaca laporan; filter tidak mengubah data presensi atau aturan kalender.
 export const adminAnalyticsAPI = {

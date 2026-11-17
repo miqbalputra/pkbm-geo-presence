@@ -99,6 +99,7 @@ func runSQLite(db *gorm.DB) error {
 		&models.BackupUpload{},
 		&models.MonthlyAttendanceConfirmation{},
 		&models.AttendanceRevisionRequest{},
+		&models.AttendanceCorrection{},
 	); err != nil {
 		return fmt.Errorf("auto migrate sqlite schema: %w", err)
 	}

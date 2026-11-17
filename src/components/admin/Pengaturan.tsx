@@ -1,26 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
-import { Save, Clock, MapPin, Timer, Map, School, ExternalLink, TestTube, CalendarCheck, Trash2, AlertTriangle, RefreshCw, ShieldCheck, ArrowRight, MessageCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Save, Clock, MapPin, Timer, Map, School, ExternalLink, TestTube, CalendarCheck, Trash2, AlertTriangle, MessageCircle } from 'lucide-react'
 import { PageHeader, Notice } from '../ui/page'
-import { adminMonthlyAttendanceConfirmationAPI, settingsAPI, pengaturanHarianAPI, todayCheckInRecalculationAPI } from '../../services/api'
-
-const statusLabel = (status) => ({
-  hadir: 'Hadir tepat waktu',
-  hadir_terlambat: 'Terlambat',
-  hadir_izin_terlambat: 'Terlambat',
-}[status] || status || '-')
-
-const statusTone = (status) => status === 'hadir'
-  ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-  : 'bg-amber-50 text-amber-800 ring-amber-200'
-
-const latenessNoteChange = (item) => {
-  if (!item.note_changed) return ''
-  if (typeof item.new_late_minutes === 'number') {
-    const previous = typeof item.old_late_minutes === 'number' ? `${item.old_late_minutes} menit` : 'belum tercatat'
-    return `Keterangan terlambat: ${previous} → ${item.new_late_minutes} menit`
-  }
-  return 'Keterangan terlambat dihapus karena status sudah tepat waktu'
-}
+import { BulkAttendanceCorrection } from './BulkAttendanceCorrection'
+import { adminMonthlyAttendanceConfirmationAPI, settingsAPI, pengaturanHarianAPI } from '../../services/api'
 
 const jakartaToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date())
 const csvNumbers = (value: unknown, min: number, max: number, fallback: number[] = []) => {
@@ -63,12 +45,6 @@ function Pengaturan() {
   const [saving, setSaving] = useState(false)
   const [notification, setNotification] = useState({ show: false, message: '', type: '' })
   const [showPanduan, setShowPanduan] = useState(false)
-  const [recalculationPreview, setRecalculationPreview] = useState(null)
-  const [recalculationLoading, setRecalculationLoading] = useState(true)
-  const [recalculationApplying, setRecalculationApplying] = useState(false)
-  const [recalculationError, setRecalculationError] = useState('')
-  const [recalculationDate, setRecalculationDate] = useState(() => jakartaToday())
-  const recalculationRequest = useRef(0)
   const [monthlyContact, setMonthlyContact] = useState('')
   const [monthlyContactLoading, setMonthlyContactLoading] = useState(true)
   const [monthlyContactSaving, setMonthlyContactSaving] = useState(false)
@@ -90,7 +66,6 @@ function Pengaturan() {
   useEffect(() => {
     loadSettings()
     loadHarian()
-    loadRecalculationPreview()
     loadMonthlyContact()
   }, [])
 
@@ -104,50 +79,6 @@ function Pengaturan() {
       setMonthlyContactError(error.message || 'Nomor WhatsApp admin belum dapat dimuat.')
     } finally {
       setMonthlyContactLoading(false)
-    }
-  }
-
-  const loadRecalculationPreview = async (date = recalculationDate) => {
-    const requestID = ++recalculationRequest.current
-    try {
-      setRecalculationLoading(true)
-      setRecalculationError('')
-      const response = await todayCheckInRecalculationAPI.preview(date)
-      if (requestID !== recalculationRequest.current) return
-      setRecalculationPreview(response.data || null)
-    } catch (error) {
-      if (requestID !== recalculationRequest.current) return
-      setRecalculationError(error.message || 'Pratinjau perbaikan status belum dapat dimuat.')
-    } finally {
-      if (requestID === recalculationRequest.current) setRecalculationLoading(false)
-    }
-  }
-
-  const handleRecalculationDateChange = (date) => {
-    setRecalculationDate(date)
-    setRecalculationPreview(null)
-    if (!date) {
-      recalculationRequest.current += 1
-      setRecalculationLoading(false)
-      setRecalculationError('Pilih tanggal presensi yang ingin diperiksa.')
-      return
-    }
-    loadRecalculationPreview(date)
-  }
-
-  const applyTodayCheckInRecalculation = async () => {
-    if (!recalculationPreview?.changed || recalculationApplying || recalculationLoading || recalculationPreview.date !== recalculationDate) return
-    const count = recalculationPreview.changed
-    if (!window.confirm(`Sesuaikan status masuk tanggal ${recalculationPreview.date} untuk ${count} presensi? Jam masuk, jam pulang, GPS, izin, sakit, dan catatan manual tidak akan diubah.`)) return
-    try {
-      setRecalculationApplying(true)
-      const response = await todayCheckInRecalculationAPI.apply(recalculationDate)
-      showNotification(response.message || `${count} status masuk hari ini berhasil disesuaikan.`, 'success')
-      await loadRecalculationPreview(recalculationDate)
-    } catch (error) {
-      showNotification('Gagal menyesuaikan status masuk: ' + (error.message || 'Silakan coba lagi.'), 'error')
-    } finally {
-      setRecalculationApplying(false)
     }
   }
 
@@ -444,7 +375,7 @@ function Pengaturan() {
           <div className="flex-1">
             <h3 className="text-lg font-bold text-gray-800 mb-2">Jam Masuk Normal</h3>
             <p className="text-sm text-gray-600 mb-4">
-              Batas waktu masuk normal. Guru yang presensi setelah jam ini akan dianggap terlambat.
+              Batas waktu masuk normal untuk PKBM Pusat yang tidak piket. Guru Pokjar cukup mencatat hadir pada tanggal tersebut, tanpa penilaian keterlambatan.
             </p>
             <div className="flex items-center gap-4">
               <input
@@ -470,102 +401,8 @@ function Pengaturan() {
       </div>
 
 </section>
-<section hidden={section !== 'Presensi' || !!loadError} aria-labelledby="perbaikan-status-masuk">
-      <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="flex gap-3">
-            <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-amber-100">
-              <AlertTriangle className="h-5 w-5 text-amber-700" aria-hidden="true" />
-            </div>
-            <div>
-              <h3 id="perbaikan-status-masuk" className="text-base font-bold text-slate-900">Perbaiki status masuk per tanggal</h3>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-700">
-                Gunakan setelah Jam Masuk Normal diperbaiki. Sistem menilai ulang presensi hadir pada tanggal yang dipilih dengan jam terbaru dan toleransi saat ini. Guru yang mendapat jadwal piket tetap memakai jam piket pada hari tersebut.
-              </p>
-              <p className="mt-2 text-xs leading-5 text-slate-600">
-                Status hadir/terlambat dan keterangan otomatis “Terlambat … menit” dapat diperbarui. Jam masuk, jam pulang, lokasi GPS, izin, sakit, serta catatan manual tetap utuh. Pengaturan dan jadwal piket aktif saat ini dipakai untuk menghitung ulang tanggal tersebut.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="flex flex-col gap-1 text-xs font-semibold text-slate-700">
-              Tanggal presensi
-              <input
-                type="date"
-                aria-label="Tanggal presensi untuk perbaikan status"
-                value={recalculationDate}
-                max={jakartaToday()}
-                onChange={(event) => handleRecalculationDateChange(event.target.value)}
-                disabled={recalculationApplying}
-                className="min-h-11 rounded-lg border border-amber-300 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() => loadRecalculationPreview(recalculationDate)}
-              disabled={recalculationLoading || recalculationApplying}
-              className="inline-flex min-h-11 flex-none items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <RefreshCw className={`h-4 w-4 ${recalculationLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
-              Perbarui pratinjau
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-5 rounded-lg border border-amber-200 bg-white p-4" aria-live="polite">
-          {recalculationLoading && <div className="flex items-center gap-3 text-sm text-slate-600"><RefreshCw className="h-4 w-4 animate-spin text-amber-700" aria-hidden="true" />Memeriksa dampak pengaturan tanggal {recalculationDate}…</div>}
-          {!recalculationLoading && recalculationError && (
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-rose-700">
-              <span>{recalculationError}</span>
-              <button type="button" onClick={() => loadRecalculationPreview(recalculationDate)} className="font-semibold underline underline-offset-2">Coba lagi</button>
-            </div>
-          )}
-          {!recalculationLoading && !recalculationError && recalculationPreview && (
-            <>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {recalculationPreview.changed > 0
-                      ? `${recalculationPreview.changed} dari ${recalculationPreview.processed} presensi hadir perlu disesuaikan.`
-                      : 'Status dan keterangan keterlambatan pada tanggal ini sudah sesuai dengan pengaturan terbaru.'}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Tanggal {recalculationPreview.date} · Jam normal {String(recalculationPreview.normal_target || '-').slice(0, 5)} WIB · Toleransi {recalculationPreview.tolerance_minutes || 15} menit
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={applyTodayCheckInRecalculation}
-                  disabled={!recalculationPreview.changed || recalculationApplying || recalculationLoading || recalculationPreview.date !== recalculationDate}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {recalculationApplying ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />}
-                  {recalculationApplying ? 'Menyesuaikan status…' : 'Jalankan perbaikan status'}
-                </button>
-              </div>
-
-              {recalculationPreview.changed > 0 && (
-                <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
-                  <div className="hidden grid-cols-[minmax(0,1.4fr)_auto_auto_auto] items-center gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500 sm:grid">
-                    <span>Guru</span><span>Masuk / target</span><span>Status lama</span><span>Status baru</span>
-                  </div>
-                  {(recalculationPreview.items || []).filter((item) => item.changed).slice(0, 8).map((item) => (
-                    <div key={item.id} className="grid gap-2 border-t border-slate-100 px-3 py-3 text-sm sm:grid-cols-[minmax(0,1.4fr)_auto_auto_auto] sm:items-center sm:gap-3">
-                      <span className="font-medium text-slate-800">{item.nama}</span>
-                      <span className="text-slate-600">{String(item.jam_masuk || '-').slice(0, 5)} / {String(item.target || '-').slice(0, 5)} {item.target_label || ''}</span>
-                      <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusTone(item.old_status)}`}>{statusLabel(item.old_status)}</span>
-                      <span className="inline-flex items-center gap-1.5"><ArrowRight className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" /><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusTone(item.new_status)}`}>{statusLabel(item.new_status)}</span></span>
-                      {item.note_changed && <span className="text-xs leading-5 text-slate-600 sm:col-span-full">{latenessNoteChange(item)}</span>}
-                    </div>
-                  ))}
-                  {recalculationPreview.changed > 8 && <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500">Dan {recalculationPreview.changed - 8} presensi lainnya akan disesuaikan.</p>}
-                </div>
-              )}
-              {recalculationPreview.skipped_no_time > 0 && <p className="mt-3 text-xs text-slate-500">{recalculationPreview.skipped_no_time} catatan hadir dilewati karena tidak memiliki jam masuk yang valid.</p>}
-            </>
-          )}
-        </div>
-      </div>
+<section hidden={section !== 'Presensi' || !!loadError}>
+      {!loading && !loadError && <BulkAttendanceCorrection normalTime={settings.jam_masuk_normal} />}
 </section>
 <section hidden={section !== 'Presensi' || !!loadError}>
       {/* Jam Minimal Presensi Pulang */}
@@ -1330,7 +1167,7 @@ function Pengaturan() {
         <h4 className="font-bold text-blue-800 mb-2">ℹ️ Informasi Penting</h4>
         <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
           <li>Perubahan pengaturan akan langsung berlaku untuk presensi berikutnya</li>
-          <li>Perbaikan status masuk hanya berlaku untuk satu tanggal yang dipilih; gunakan Koreksi Presensi untuk perubahan data lainnya</li>
+          <li>Perbaikan bulk hanya berlaku untuk rentang dan kategori yang dipilih; periksa pratinjau sebelum menerapkan</li>
           <li>Pastikan pengaturan sesuai dengan kebijakan sekolah</li>
           <li>Radius GPS terlalu kecil dapat menyebabkan guru kesulitan presensi</li>
           <li>Koordinat GPS harus akurat agar validasi presensi berjalan dengan baik</li>

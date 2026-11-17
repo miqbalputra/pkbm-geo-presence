@@ -51,4 +51,6 @@ Route PHP lama dipertahankan sebagai kompatibilitas API dan rollback tersedia me
 
 ## Integrasi dan dokumentasi
 
+Perbaikan massal akibat salah pengaturan jam masuk tersedia di **Pengaturan → Presensi**. Fitur memisahkan aturan PKBM Pusat dan Pokjar, menyediakan pratinjau, jurnal sebelum/sesudah, dan pembatalan dengan pemeriksaan konflik. Lihat [panduan perbaikan bulk](docs/perbaikan-bulk-presensi.md).
+
 Endpoint lama untuk n8n, Hermes, dan webhook tetap tersedia melalui route kompatibilitas. Lihat panduan operasional lama pada [legacy-php/README.PHP.md](legacy-php/README.PHP.md), serta petunjuk pengguna dan dokumentasi yang sudah ada di repository.

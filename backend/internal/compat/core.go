@@ -70,6 +70,7 @@ func (h *Handler) RegisterCoreRoutes(app fiber.Router) {
 	// Kept for the initial UI shipped before the date picker was added.
 	v1.Get("/operations/today-checkin-recalculation", protected, auth.RequireRoles(admin...), h.todayCheckInRecalculation)
 	v1.Post("/operations/today-checkin-recalculation", protected, auth.RequireRoles(admin...), h.todayCheckInRecalculation)
+	h.RegisterCorrectionRoutes(app)
 }
 
 func (h *Handler) guru(c *fiber.Ctx) error {
